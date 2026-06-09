@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.55-2026-06-09"
+APP_BUILD = "parquet-v28.56-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.55 — Manga (Κόμικς): series-continuation engine. Routing ανά Σειρά βιβλίου × αριθμό τόμου από τον τίτλο × mangaka (Συγγραφέας) × εκδότη/imprint × sales. Slots 1-5: οι ΕΠΟΜΕΝΟΙ τόμοι της ίδιας σειράς με σειρά ανάγνωσης (Berserk Vol.7 → 8,9,10,11,12), dedup ανά τόμο (ένα edition/τόμο, deluxe vs regular). Μετά: τόμοι που λείπουν, άλλα έργα του ίδιου mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch), bestsellers ίδιου εκδότη, top manga backfill → 10/10. ΣΗΜΕΙΩΣΗ: ο κανόνας same-hierarchy exclusion ΔΕΝ ισχύει εδώ — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing), hard platform-lock, no-second-gamepad, orphan wheel add-ons μόνο σε τιμόνι → 10/10.
+        🟢 Engine v28.56 — K-Pop CDs (Music sheet, Hierarchy='K-POP'): fan-collection engine. Όλα τα 10 slots είναι K-Pop CD. Υβριδικό: σχέση καλλιτέχνη/group (gate) × sales (κατάταξη) × version-collector λογική. Slots 1-2: ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ του ίδιου άλμπουμ (Deadline Black/Gray/Silver — "collect them all"). Slots 3-5: άλλα άλμπουμ του ΙΔΙΟΥ group (dedup ανά άλμπουμ, κρατάμε την best-selling έκδοση). Slots 6-7: ECOSYSTEM — solo μέλη ↔ group ↔ sub-units μέσω της στήλης Καλλιτέχνης.1 (RM;BTS, Jin;BTS, LISA;BLACKPINK), δηλ. ένα BTS άλμπουμ φέρνει Jin/RM solo & αντίστροφα. Slots 8-10: discovery — top K-Pop άλλων groups με boost ίδιας εταιρείας (HYBE/JYP/YG/SM). Top K-Pop backfill → 10/10. ΣΗΜΕΙΩΣΗ: same-hierarchy exclusion ΔΕΝ ισχύει — K-Pop→K-Pop ΕΙΝΑΙ η πρόταση. | v28.55 — Manga (Κόμικς): series-continuation engine. Routing ανά Σειρά βιβλίου × αριθμό τόμου από τον τίτλο × mangaka (Συγγραφέας) × εκδότη/imprint × sales. Slots 1-5: οι ΕΠΟΜΕΝΟΙ τόμοι της ίδιας σειράς με σειρά ανάγνωσης (Berserk Vol.7 → 8,9,10,11,12), dedup ανά τόμο (ένα edition/τόμο, deluxe vs regular). Μετά: τόμοι που λείπουν, άλλα έργα του ίδιου mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch), bestsellers ίδιου εκδότη, top manga backfill → 10/10. ΣΗΜΕΙΩΣΗ: ο κανόνας same-hierarchy exclusion ΔΕΝ ισχύει εδώ — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing), hard platform-lock, no-second-gamepad, orphan wheel add-ons μόνο σε τιμόνι → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -4985,6 +4985,90 @@ VINYLREC_TEST_SKUS = {'2050948', '2076784', '1275170', '304880', '1268656', '727
 VINYLREC_ARTIST_STOPWORDS = {'various', 'various artists', 'va', 'soundtrack', 'ost', 'o.s.t.', ''}
 
 # ═════════════════════════════════════════════════════════════
+# 🟢 K-POP CDs CONFIGURATION — trigger = a K-Pop CD  [v28.56]
+# ═════════════════════════════════════════════════════════════
+# Trigger = a CD in the Music sheet with Hierarchy = 'K-POP' (124 SKUs, all CD;
+# there is no K-Pop vinyl). ALL 10 slots are K-Pop CDs (mirrors the vinyl-
+# record "all-music" philosophy — a fan viewing an album wants more albums,
+# not hardware).
+#
+# APPROACH — HYBRID: artist/group RELATIONSHIP (gate) × SALES (rank) × a
+# K-Pop-specific VERSION-COLLECTOR band. Spec columns beyond the artist are too
+# noisy to gate on (Είδος mislabels 36 rows as plain "Pop"; Μορφή άλμπουμ has
+# typos like "Fulll Album"); but BOTH Καλλιτέχνης and Sum of Sales are 100%
+# populated, so we gate on the reliable artist linkage and rank on sales.
+#
+# THE GROUP/MEMBER LINK IS DATA-DRIVEN. The Καλλιτέχνης.1 column carries the
+# member↔group relationship as a semicolon list ("RM;BTS", "Jin;BTS",
+# "LISA;BLACKPINK", "Tzuyu;TWICE"). We build an ENTITY SET per product from
+# Καλλιτέχνης + Καλλιτέχνης.1; two products are "same group/ecosystem" when
+# their entity sets intersect. So a BTS album surfaces Jin/RM solo (their
+# {jin,bts}/{rm,bts} sets share the 'bts' token) and vice-versa — no hard-coded
+# member map needed.
+#
+# SLOT LAYOUT (degrades gracefully, sequential fill → no gaps):
+#   slots 1-2   ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ  — same canonical album, different version
+#                                 (collector "buy all versions")
+#   slots 3-5   ΙΔΙΟ GROUP      — other albums by the exact same artist
+#                                 (deduped by album, best-selling version kept)
+#   slots 6-7   ECOSYSTEM       — entity-set intersection: solo members ↔ group
+#                                 ↔ sub-units (excl. exact artist)
+#   slots 8-10  ΔΗΜΟΦΙΛΗ K-POP  — discovery: other groups, same-agency boosted
+#   spill/backfill → more discovery, then top K-Pop overall (guarantees 10).
+
+KPOP_TRIGGER_HIER = {'K-POP'}   # matched case-insensitively, spaces stripped
+
+# Test SKUs span big groups + a solo member (Jin → must surface BTS via
+# ecosystem) + a global HYBE group (KATSEYE), to exercise every band.
+KPOP_TEST_SKUS = {'2099940', '2101809', '2096756', '2098101', '1897690', '2029449', '1932249', '2080949'}
+
+KPOP_MARKETING_COPY = {
+    'Άλλη Έκδοση':   'Άλλη έκδοση του ίδιου άλμπουμ — μάζεψέ τες όλες.',
+    'Ίδιο Group':    'Ακόμα ένα άλμπουμ από το ίδιο group.',
+    'Ecosystem':     'Από τα μέλη & το ευρύτερο group.',
+    'Δημοφιλή K-Pop':'Από τα πιο αγαπημένα K-Pop αυτή τη στιγμή.',
+}
+
+# Trailing parenthetical / dash descriptors that mark a VERSION rather than a
+# different album → stripped to derive the canonical album name. In K-Pop the
+# trailing paren is almost always a version tag, so we strip parens broadly.
+KPOP_VERSION_NOISE = [
+    'ver', 'version', 'versions', 'random', 'edition', 'standard', 'deluxe',
+    'limited', 'special', 'exclusive', 'photobook', 'photocard', 'poster',
+    'inkl', 'incl', 'cover', 'set', 'box', 'digipack', 'jewel', 'kit',
+    'journey', 'imagine', 'weverse', 'kr', 'jp', 'us', 'eu',
+    # colours / member-name version tags are common ("Black Ver.", "Jennie")
+    'black', 'white', 'gray', 'grey', 'silver', 'gold', 'red', 'blue', 'green',
+    'pink', 'purple', 'glowing', 'glimmer', 'murmur', 'heaven', 'phantom',
+    'a ver', 'b ver', 'c ver', 'i', 'ii', 'iii', 'iv', 'vol',
+]
+
+# Artist values that aren't a real single act → skip the same-group fill.
+KPOP_ARTIST_STOPWORDS = {'various', 'various artists', 'va', 'v.a.', 'ost', 'o.s.t.', 'soundtrack', 'compilation', ''}
+
+# Curated label/agency map (SOFT discovery signal only — floats same-agency
+# K-Pop above random K-Pop in the discovery band; never a hard gate). Keys are
+# casefolded group names.
+KPOP_AGENCY = {
+    # HYBE
+    'bts': 'hybe', 'txt': 'hybe', 'tomorrow x together': 'hybe', 'enhypen': 'hybe',
+    'seventeen': 'hybe', 'newjeans': 'hybe', 'le sserafim': 'hybe', 'illit': 'hybe',
+    'boynextdoor': 'hybe', 'katseye': 'hybe', 'jin': 'hybe', 'rm': 'hybe',
+    'jungkook': 'hybe', 'jimin': 'hybe', 'j-hope': 'hybe', 'suga': 'hybe', 'v': 'hybe',
+    # JYP
+    'stray kids': 'jyp', 'twice': 'jyp', 'itzy': 'jyp', 'nmixx': 'jyp', 'day6': 'jyp',
+    'tws': 'jyp', 'chaeyoung': 'jyp', 'tzuyu': 'jyp', 'dxs': 'jyp',
+    # YG
+    'blackpink': 'yg', 'babymonster': 'yg', 'treasure': 'yg', 'lisa': 'yg',
+    'jennie': 'yg', 'rose': 'yg', 'jisoo': 'yg',
+    # SM
+    'aespa': 'sm', 'nct': 'sm', 'riize': 'sm', 'red velvet': 'sm', 'exo': 'sm',
+    'superm': 'sm',
+    # other
+    '(g)i-dle': 'cube', 'ive': 'starship', 'ateez': 'kq',
+}
+
+# ═════════════════════════════════════════════════════════════
 # 🟢 GAMING — PS5 CONSOLE CONFIGURATION (v28.5: 3-tier + bundle-aware)
 # ═════════════════════════════════════════════════════════════
 # Trigger detection: products in the Gaming sheet with Hierarchy = 'PS5 CONSOLE'.
@@ -8936,6 +9020,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3Cline x1='17' y1='4' x2='14' y2='11'/%3E%3Ccircle cx='17' cy='4' r='1'/%3E%3C/svg%3E"},
         {"key": "Vinyl Records", "label": "Δίσκοι\\nΒινυλίου",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='5.5'/%3E%3Ccircle cx='12' cy='12' r='1' fill='%23ff5e00'/%3E%3C/svg%3E"},
+        {"key": "K-Pop CDs", "label": "K-Pop\\nCDs",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Ccircle cx='12' cy='12' r='2.6'/%3E%3Cpath d='M12 3a9 9 0 0 1 8 5'/%3E%3C/svg%3E"},
     ],
     "Gaming": [
         {"key": "PS5 Console", "label": "PS5\nConsole",
@@ -9605,6 +9691,22 @@ else:
                     st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Δίσκο Βινυλίου</p>', unsafe_allow_html=True)
                     sel = st.sidebar.selectbox("", vinyls['Title'].unique(), label_visibility="collapsed", key="vinylrec_sel")
                     trigger = vinyls[vinyls['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "K-Pop CDs":
+            if df_music.empty:
+                st.sidebar.warning("Sheet 'Music' is empty or missing.")
+            else:
+                _hk = df_music['Hierarchy'].fillna('').astype(str).str.upper().str.replace(' ', '', regex=False)
+                kpop = df_music[_hk.isin({h.upper().replace(' ', '') for h in KPOP_TRIGGER_HIER})]
+                k_filtered = kpop[kpop['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).isin(KPOP_TEST_SKUS)]
+                if not k_filtered.empty:
+                    kpop = k_filtered
+                if kpop.empty:
+                    st.sidebar.warning("Δεν βρέθηκαν K-Pop CDs στο sheet Music.")
+                else:
+                    st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε K-Pop CD</p>', unsafe_allow_html=True)
+                    sel = st.sidebar.selectbox("", kpop['Title'].unique(), label_visibility="collapsed", key="kpop_sel")
+                    trigger = kpop[kpop['Title']==sel].iloc[0] if sel else None
 
     
     elif active_cluster == "Robot Vacuums":
@@ -30447,6 +30549,212 @@ def run_vinyl_record_engine(trigger, df_music, df_products=None, df_peripherals=
     return recs_df, diag, slot_notes, recs_df
 
 
+# ═══════════════════════════════════════════════════════════════
+# 🟢 K-POP CDs ENGINE  [v28.56]  — trigger = a K-Pop CD (Hierarchy='K-POP')
+# ═══════════════════════════════════════════════════════════════
+def run_kpop_engine(trigger, df_music, df_history=None):
+    """Trigger = a K-Pop CD. ALL 10 slots are K-Pop CDs, in a banded layout:
+      slots 1-2   SAME ALBUM, other versions   (collector "buy all versions")
+      slots 3-5   SAME GROUP, other albums      (deduped by album)
+      slots 6-7   ECOSYSTEM (members ↔ group ↔ sub-units, via Καλλιτέχνης.1)
+      slots 8-10  DISCOVERY (other groups, same-agency boosted)
+      spill/backfill → more discovery, then top K-Pop (guarantees 10).
+    Bands degrade gracefully with no gaps when a band's pool is shallow.
+    Hybrid: artist/group RELATIONSHIP gates the bands, SALES ranks within them.
+    """
+    diag, slot_notes, all_recs = [], {}, []
+    MAX = 10
+
+    # ── canonical album name: strip trailing version parens / dash tails ──
+    _vk = '|'.join(re.escape(k) for k in KPOP_VERSION_NOISE)
+    _paren_pat = re.compile(r'\s*[\(\[][^\)\]]*[\)\]]\s*$')
+    _kw_pat = re.compile(r'\b(' + _vk + r')\b', re.IGNORECASE)
+    def _canon_album(title):
+        c = str(title).strip()
+        # In K-Pop the trailing paren is essentially always a version/edition
+        # tag → strip up to 3 trailing parens whose contents look like a
+        # version (or are short, ≤4 words: "(Random)", "(3 Versions)").
+        for _ in range(3):
+            m = _paren_pat.search(c)
+            if not m:
+                break
+            inside = m.group(0).strip(' ()[]')
+            if _kw_pat.search(inside) or len(inside.split()) <= 4:
+                c = c[:m.start()].strip()
+            else:
+                break
+        # strip a trailing ' - <short version descriptor>' tail
+        for delim in (' - ', ' – ', ' — '):
+            if delim in c:
+                head, _, tail = c.rpartition(delim)
+                if (_kw_pat.search(tail) or len(tail.split()) <= 4) and head:
+                    c = head.strip()
+        return (c.casefold().replace('’', "'").replace('`', "'")
+                 .replace('  ', ' ').strip())
+
+    # ── entity set: artist + semicolon-listed group/member links ──
+    def _entities(artist, artist1):
+        out = set()
+        for blob in (artist, artist1):
+            s = '' if blob is None or (isinstance(blob, float) and pd.isna(blob)) else str(blob)
+            for tok in re.split(r'[;/]', s):
+                tok = tok.strip().casefold()
+                if tok and tok not in ('nan', 'none', 'nat'):
+                    out.add(tok)
+        return out
+
+    def _agency(ent_set):
+        for e in ent_set:
+            if e in KPOP_AGENCY:
+                return KPOP_AGENCY[e]
+        return ''
+
+    # ── trigger fields (NaN-safe) ──
+    def _s(key):
+        val = trigger.get(key, '')
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return ''
+        s = str(val).strip()
+        return '' if s.lower() in ('nan', 'none', 'nat') else s
+    tm      = _s('Material')
+    tt      = str(trigger.get('Title', ''))
+    tartist = _s('Καλλιτέχνης')
+    _art_cf = tartist.casefold()
+    t_ent   = _entities(_s('Καλλιτέχνης'), _s('Καλλιτέχνης.1'))
+    t_agency = _agency(t_ent)
+    artist_is_real = bool(_art_cf) and _art_cf not in KPOP_ARTIST_STOPWORDS
+    t_canon = _canon_album(tt)
+
+    diag.append(("0. Trigger",
+                 f"Artist={tartist or '—'} | Agency={t_agency or '—'}",
+                 f"album='{t_canon}' | entities={sorted(t_ent)} | "
+                 f"group-fill={'ON' if artist_is_real else 'OFF (compilation)'}"))
+
+    # ── K-Pop pool ──
+    music = df_music.copy() if df_music is not None and not df_music.empty else pd.DataFrame()
+    if music.empty:
+        diag.append(("1. Pool", 0, "Music sheet empty"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    _hk = music['Hierarchy'].fillna('').astype(str).str.upper().str.replace(' ', '', regex=False)
+    music = music[_hk.isin({h.upper().replace(' ', '') for h in KPOP_TRIGGER_HIER})].copy()
+    if music.empty:
+        diag.append(("1. Pool", 0, "No K-POP rows in Music sheet"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    music['_mat']      = music['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    music['Sales_30']  = pd.to_numeric(music.get('Sum of Sales', 0), errors='coerce').fillna(0.0)
+    music['_artist_n'] = music['Καλλιτέχνης'].fillna('').astype(str).str.strip().str.casefold()
+    music['_canon']    = music['Title'].apply(_canon_album)
+    music['_avail']    = (music.get('AVAILABILITY', '').astype(str).str.strip() == 'Άμεσα Διαθέσιμο').astype(int)
+    a1 = music['Καλλιτέχνης.1'] if 'Καλλιτέχνης.1' in music.columns else pd.Series('', index=music.index)
+    music['_ent'] = [
+        _entities(a, b) for a, b in zip(music['Καλλιτέχνης'].tolist(), a1.tolist())
+    ]
+    music['_same_agency'] = music['_ent'].apply(
+        lambda s: 1 if (t_agency and _agency(s) == t_agency) else 0)
+
+    used_mats  = {tm}
+    used_canon = set()
+    art_count  = {}   # per-artist counter, for the discovery diversity cap
+
+    def _take(pool, role, want, dedupe_canon=True, artist_cap=None):
+        """Append up to `want` rows from an already-sorted pool, de-duping by
+        material (always) and canonical album (optional — OFF for the
+        same-album 'other versions' band). `artist_cap` limits how many rows a
+        single artist may contribute (None = unlimited); used to keep the
+        discovery band from being dominated by one prolific group."""
+        n = 0
+        for _, row in pool.iterrows():
+            if n >= want:
+                break
+            if row['_mat'] in used_mats:
+                continue
+            if dedupe_canon and row['_canon'] in used_canon:
+                continue
+            an = row['_artist_n']
+            if artist_cap is not None and art_count.get(an, 0) >= artist_cap:
+                continue
+            rc = row.copy()
+            slot = len(all_recs) + 1
+            rc['Assigned_Slot']  = slot
+            rc['Slot_Position']  = slot
+            rc['Slot_Role']      = role
+            rc['Final_Score']    = float(row.get('Sales_30', 0) or 0)
+            rc['Marketing_Copy'] = KPOP_MARKETING_COPY.get(role, "Ιδανική επιλογή.")
+            all_recs.append(rc)
+            used_mats.add(row['_mat'])
+            used_canon.add(row['_canon'])
+            art_count[an] = art_count.get(an, 0) + 1
+            n += 1
+        return n
+
+    # ── BAND POOLS ───────────────────────────────────────────────────────
+    # Band A — same canonical album, different material (collect versions).
+    ver_pool = music[(music['_canon'] == t_canon) & (music['_mat'] != tm)].copy()
+    ver_pool = ver_pool.sort_values(['Sales_30', '_avail'], ascending=False)
+
+    # Band B — exact same artist, other albums.
+    if artist_is_real:
+        grp_pool = music[music['_artist_n'] == _art_cf].copy()
+        grp_pool = grp_pool.sort_values(['Sales_30', '_avail'], ascending=False)
+    else:
+        grp_pool = pd.DataFrame(columns=music.columns)
+
+    # Band C — ecosystem: entity-set intersects trigger's, but NOT exact artist.
+    if t_ent:
+        eco_mask = music['_ent'].apply(lambda s: bool(s & t_ent))
+        eco_pool = music[eco_mask & (music['_artist_n'] != _art_cf)].copy()
+        eco_pool = eco_pool.sort_values(['Sales_30', '_avail'], ascending=False)
+    else:
+        eco_pool = pd.DataFrame(columns=music.columns)
+
+    # Band D — discovery: everything else, same-agency floated to the top.
+    disc_pool = music.copy()
+    if t_ent:
+        disc_pool = disc_pool[~disc_pool['_ent'].apply(lambda s: bool(s & t_ent))].copy()
+    disc_pool = disc_pool.sort_values(['_same_agency', 'Sales_30', '_avail'], ascending=False)
+
+    # ── SLOT FILL (sequential → degrades with no gaps) ──
+    VERSIONS  = 2   # slots 1-2
+    SAMEGROUP = 3   # slots 3-5
+    ECOSYSTEM = 2   # slots 6-7
+
+    n_ver = _take(ver_pool, 'Άλλη Έκδοση', VERSIONS, dedupe_canon=False)
+    # lock the trigger album so later bands never re-add another version of it
+    used_canon.add(t_canon)
+    n_grp = _take(grp_pool, 'Ίδιο Group', SAMEGROUP)
+    # Ecosystem & discovery first pass: cap one artist at 2 albums so a single
+    # prolific group can't dominate the carousel.
+    n_eco = _take(eco_pool, 'Ecosystem', ECOSYSTEM, artist_cap=2)
+    n_disc = _take(disc_pool, 'Δημοφιλή K-Pop', MAX - len(all_recs), artist_cap=2)
+    # spill (still capped) — if earlier bands were shallow, pull more group/eco
+    n_grp += _take(grp_pool, 'Ίδιο Group', MAX - len(all_recs))
+    n_eco += _take(eco_pool, 'Ecosystem', MAX - len(all_recs), artist_cap=2)
+    n_disc += _take(disc_pool, 'Δημοφιλή K-Pop', MAX - len(all_recs), artist_cap=2)
+    # relaxed sweep — drop the diversity cap to guarantee a full 10
+    n_disc += _take(disc_pool, 'Δημοφιλή K-Pop', MAX - len(all_recs))
+    # backfill — top-selling K-Pop overall, guarantees 10 filled slots
+    bp = music[~music['_mat'].isin(used_mats)].copy().sort_values(['Sales_30', '_avail'], ascending=False)
+    n_bf = _take(bp, 'Δημοφιλή K-Pop', MAX - len(all_recs))
+
+    slot_notes[1] = [
+        "=== Layout: 1-2 versions · 3-5 same group · 6-7 ecosystem · 8-10 discovery ===",
+        f"Versions={n_ver} · SameGroup={n_grp} · Ecosystem={n_eco} · "
+        f"Discovery={n_disc} · Backfill={n_bf}",
+    ]
+    diag.append(("1. Other versions (same album)", n_ver, f"album '{t_canon}'"))
+    diag.append(("2. Same group (discography)", n_grp, f"artist '{tartist or 'n/a'}'"))
+    diag.append(("3. Ecosystem (members ↔ group)", n_eco, f"entities {sorted(t_ent)}"))
+    diag.append(("4. Discovery (other K-Pop)", n_disc, f"agency boost='{t_agency or 'none'}'"))
+    diag.append(("5. Top-K-Pop backfill", n_bf, f"Filled {n_bf} slots"))
+
+    recs_df = pd.DataFrame(all_recs) if all_recs else pd.DataFrame()
+    if not recs_df.empty:
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        recs_df = recs_df.sort_values('Assigned_Slot').reset_index(drop=True)
+    return recs_df, diag, slot_notes, recs_df
+
+
 
 def run_vinyl_engine(trigger, df_products, df_peripherals, df_music, df_history):
     diag, slot_notes, all_recs = [], {}, []
@@ -31356,6 +31664,16 @@ elif active_cluster == "Vinyl Records":
         trigger, df_music, df_products, df_peripherals, df_books, df_history)
     slot_diag = []
     full_candidates = recs
+elif active_cluster == "K-Pop CDs":
+    # v28.56 — Trigger = a K-Pop CD (Music sheet, Hierarchy='K-POP'). All 10
+    # slots are K-Pop CDs. Hybrid: artist/group relationship (entity-set gate)
+    # × sales rank × version-collector band. Bands: same-album versions →
+    # same-group discography → ecosystem (member↔group via Καλλιτέχνης.1) →
+    # same-agency-boosted discovery → top-K-Pop backfill → 10/10.
+    recs, diag, slot_notes, full_candidates = run_kpop_engine(
+        trigger, df_music, df_history)
+    slot_diag = []
+    full_candidates = recs
 elif active_cluster == "PS5 Console":
     recs, diag, slot_notes, full_candidates = run_ps5_console_engine(trigger, df_gaming, df_history, df_peripherals)
     slot_diag = []
@@ -31574,6 +31892,8 @@ if not recs.empty:
             marketing_text = str(r.get('Marketing_Copy', DH_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
+        elif active_cluster == "K-Pop CDs":
+            marketing_text = str(r.get('Marketing_Copy', KPOP_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "Soundbars":
             marketing_text = str(r.get('Marketing_Copy', SOUNDBAR_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "Controllers":
@@ -31604,6 +31924,8 @@ if not recs.empty:
     elif active_cluster == "DehumidifiersIonizers":
         header_text = "Ολοκλήρωσε το υγιεινό σου σπίτι"
     elif active_cluster == "Vinyl Records":
+        header_text = "Για τη συλλογή σου"
+    elif active_cluster == "K-Pop CDs":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "Soundbars":
         header_text = "Ολοκλήρωσε το home cinema σου"
@@ -31727,6 +32049,18 @@ with st.expander("⚙️ System Diagnostics"):
         st.markdown(
             f"**Mangaka:** `{t_auth_mg[:80]}` | **Publisher:** `{t_pub_mg}`"
         )
+    elif active_cluster == "K-Pop CDs":
+        # v28.56 — K-Pop diagnostic surface: the relationship signals the
+        # engine gates on (artist, the semicolon group/member links, agency).
+        t_art_kp  = str(trigger.get('Καλλιτέχνης', '')).strip()
+        t_a1_kp   = str(trigger.get('Καλλιτέχνης.1', '')).strip()
+        t_fmt_kp  = str(trigger.get('Μορφή άλμπουμ', '')).strip()
+        st.markdown(
+            f"**Artist:** `{t_art_kp}` | **Group/Member links (Καλλιτέχνης.1):** `{t_a1_kp}`"
+        )
+        st.markdown(
+            f"**Album format:** `{t_fmt_kp}` | **Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
 
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
@@ -31759,6 +32093,12 @@ with st.expander("⚙️ System Diagnostics"):
                               'Σειρά βιβλίου','Συγγραφέας','Εκδότης',
                               'Εξώφυλλο','Αριθμός Σελίδων','Ημερ/νία έκδοσης',
                               'Γλώσσα Γραφής','Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "K-Pop CDs":
+        # v28.56 — K-Pop attributes: the artist + group/member link
+        # (Καλλιτέχνης.1) gate the bands; sales rank within them.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Καλλιτέχνης','Καλλιτέχνης.1','Είδος','Μορφή άλμπουμ',
+                              'Έτος Παραγωγής','Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Greek School Books":
         # v28.30 — school book attributes: class + subject + publisher
         # drive the recommendation; show those plus general bibliographic
