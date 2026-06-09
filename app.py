@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.57.0-2026-06-09"
+APP_BUILD = "parquet-v28.57.1-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.57.0 — Ψυγεία Δίπορτα (two-door fridge) cross-sell engine.
+        🟢 Engine v28.57.1 — Ψυγεία Δίπορτα cross-sell engine (no-rival-brand accessory gate).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -24751,6 +24751,32 @@ def run_fridge_engine(trigger, df_mda, df_history):
 # frames: cross-sell cooking package from MDA (competitor fridges dropped)
 # and the SMEG-retro color-coordinated small kitchen from SDA.
 
+def _diporto_gate_rival_accessories(pool, trigger_brand, notes):
+    """HARD no-rival-brand gate for the fridge-accessory (care) pool.
+
+    User policy (v28.57.1, printer-cartridge philosophy): accessories /
+    consumables carrying a RIVAL appliance brand must never appear in a
+    buyer's carousel — a HISENSE δίπορτο buyer should not be shown a
+    BOSCH-branded fridge cleaner, an AEG shelf or a MIELE sommelier set.
+
+    Keeps: the trigger's own brand family (FRIDGE_BRAND_FAMILIES) + NEUTRAL
+    accessory brands (SCANPART, WPRO, generic spares — anything NOT in the
+    appliance-manufacturer list _CK_APPLIANCE_BRANDS, which are genuinely
+    universal-fit parts). Drops: every other appliance maker's accessory.
+    If the gate empties the pool, the slot transparently backfills from the
+    cooking pools (10/10 still guaranteed)."""
+    if pool is None or pool.empty or 'Κατασκευαστής' not in pool.columns:
+        return pool
+    fam = FRIDGE_BRAND_FAMILIES.get(_fridge_brand_family(trigger_brand), set())
+    bcol = pool['Κατασκευαστής'].fillna('').astype(str).str.upper().str.strip()
+    rival = bcol.isin(_CK_APPLIANCE_BRANDS) & ~bcol.isin(fam)
+    if rival.any():
+        notes.append(f"  ✗ HARD-dropped {int(rival.sum())} RIVAL-brand accessories "
+                     f"({sorted(bcol[rival].unique())[:6]} ∉ family of {trigger_brand or '—'}) "
+                     f"— no-rival-brand policy")
+    return pool[~rival]
+
+
 def run_diporto_engine(trigger, df_mda, df_sda, df_history):
     """Build up to 10 cross-sell slots for a Ψυγεία Δίπορτα (δίπορτο) trigger.
 
@@ -24831,6 +24857,7 @@ def run_diporto_engine(trigger, df_mda, df_sda, df_history):
 
         if logic_key == 'FRIDGE_CARE_UNIVERSAL':
             scored = _fridge_build_care_pool(base_pool, tbrand, notes)
+            scored = _diporto_gate_rival_accessories(scored, tbrand, notes)
         elif logic_key == 'FRIDGE_KITCHEN_COLORED':
             scored = _fridge_build_kitchen_pool_colored(
                 base_pool, tbrand, tfam, tcolor, tcolor_grp, ttier, tspecs, notes)
