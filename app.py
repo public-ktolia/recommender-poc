@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.54.5-2026-06-09"
+APP_BUILD = "parquet-v28.55-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing) — hard platform-lock × sales × χρώμα × brand-match × keyword routing. v28.54.5 (racing rig): δεν προτείνει add-on που το τιμόνι ΗΔΗ έχει (G923 με μοχλό → όχι 2ος μοχλός· πετάλια bundled → όχι πετάλια), και προτείνει το add-on που ΛΕΙΠΕΙ προβεβλημένα στο slot 1 brand-matched (G29 χωρίς μοχλό → Logitech Driving Force Shifter στο slot 1 αντί για καρέκλα). + v28.54.4: ποτέ δεύτερο gamepad, drop handheld gear (ROG Ally/ROG Xbox Ally), orphan wheel add-ons μόνο σε τιμόνι. Same-hierarchy exclusion, no-same-type dedup, domain-scoped backfill → 10/10.
+        🟢 Engine v28.55 — Manga (Κόμικς): series-continuation engine. Routing ανά Σειρά βιβλίου × αριθμό τόμου από τον τίτλο × mangaka (Συγγραφέας) × εκδότη/imprint × sales. Slots 1-5: οι ΕΠΟΜΕΝΟΙ τόμοι της ίδιας σειράς με σειρά ανάγνωσης (Berserk Vol.7 → 8,9,10,11,12), dedup ανά τόμο (ένα edition/τόμο, deluxe vs regular). Μετά: τόμοι που λείπουν, άλλα έργα του ίδιου mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch), bestsellers ίδιου εκδότη, top manga backfill → 10/10. ΣΗΜΕΙΩΣΗ: ο κανόνας same-hierarchy exclusion ΔΕΝ ισχύει εδώ — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing), hard platform-lock, no-second-gamepad, orphan wheel add-ons μόνο σε τιμόνι → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -6184,6 +6184,45 @@ BOOKS_V2_CATEGORIES = {
 BOOKS_V2_CLUSTERS = set(BOOKS_V2_CATEGORIES.keys())
 
 # ═════════════════════════════════════════════════════════════
+# v28.55 — MANGA ENGINE CONFIG
+# ═════════════════════════════════════════════════════════════
+# Trigger flow for the "Manga" cluster (IntBooks Sheet2, Hierarchy='MANGA'):
+#   The dominant cross-sell signal for manga is SERIES CONTINUATION — a reader
+#   on "Berserk, Vol. 7" overwhelmingly wants Vol. 8, 9, 10… not a random
+#   bestseller. So this is a HYBRID, SPEC-STRUCTURED engine (NOT sales-only):
+#   specs hard-tier the slots, sales ranks WITHIN each tier.
+#
+#   Slot roles, in priority order:
+#     1. SERIES_NEXT  (slots 1-5): same Σειρά βιβλίου, volume > trigger volume,
+#        ascending reading order. Deduped by volume (one edition per volume —
+#        prefer the same edition family as the trigger, e.g. regular vs Deluxe).
+#     2. SERIES_OTHER : same series, remaining volumes (earlier ones the reader
+#        may have missed, omnibuses, spinoffs), volume-ordered then sales.
+#     3. SAME_AUTHOR  : other series by the same mangaka (Συγγραφέας),
+#        sales-ranked, deduped by series.
+#     4. SAME_PUBLISHER_POP : bestsellers from the same imprint (Εκδότης —
+#        Viz Media / Kodansha / Dark Horse…), sales-ranked, deduped by series.
+#     5. TOP_MANGA    : global top-selling manga backfill, deduped by series.
+#   Universal sales-ranked backfill guarantees 10/10.
+#
+# IMPORTANT — same-hierarchy exclusion is DELIBERATELY NOT applied here. Every
+# manga shares Hierarchy='MANGA'; the recommendable universe IS that hierarchy.
+# Unlike electronics (plug→plug is silly), manga→manga is the whole point. This
+# engine is self-contained and never routes through the global _drop_th filter.
+MANGA_SER_COL   = 'Σειρά βιβλίου'   # series   (92% coverage)
+MANGA_AUTH_COL  = 'Συγγραφέας'      # mangaka  (93% coverage)
+MANGA_PUB_COL   = 'Εκδότης'         # imprint  (97% coverage)
+MANGA_CONFIG = {
+    "level2_filter":   ["Comics"],
+    "hierarchy":       "MANGA",
+    "data_source":     "df_manga",
+    "n_series_next":   5,   # slots reserved for next-in-series reading order
+    "cap_series_other":6,
+    "cap_same_author": 3,
+    "cap_same_pub":    4,
+}
+
+# ═════════════════════════════════════════════════════════════
 # v28.30 — GREEK SCHOOL BOOKS ENGINE CONFIG
 # ═════════════════════════════════════════════════════════════
 # Trigger flow for "Greek School Books" cluster:
@@ -8544,6 +8583,18 @@ def load_all_data():
     dint_books = _load('International Books')
     if dint_books.empty:
         dint_books = _load('Sheet1')   # fallback: workbook ships with default sheet name
+
+    # ── v28.55: MANGA sheet from "Recommendations GitHub IntBooks.xlsx".
+    # 7,111 rows, Level 2='Comics', Hierarchy='MANGA'. Sheet is named "Sheet2"
+    # in the workbook — UNIQUE across all workbooks (Home has only Sheet1, the
+    # main/Books files use named sheets), so _load('Sheet2') is unambiguous.
+    # Rich signals the manga engine scores on: Σειρά βιβλίου (92% — One Piece,
+    # Naruto, Bleach…), volume number parsed from Title ("Berserk, Vol. 7"),
+    # Συγγραφέας/mangaka (93%), Εκδότης/imprint (97% — Viz Media, Kodansha…),
+    # Sum of Sales (100%). Used by the Manga (series-continuation) engine.
+    dmanga = _load('MANGA')
+    if dmanga.empty:
+        dmanga = _load('Sheet2')   # fallback: workbook ships with default sheet name
     
     # ── v28.30: Greek School Books from
     # "Recommendations GitHub Books.xlsx". 3,814 rows, Level 2='Greek School Books'.
@@ -8623,16 +8674,18 @@ def load_all_data():
         dgr_books[CC] = ''
     if not dint_books.empty and CC not in dint_books.columns:
         dint_books[CC] = ''
+    if not dmanga.empty and CC not in dmanga.columns:
+        dmanga[CC] = ''
     if not dgr_school.empty and CC not in dgr_school.columns:
         dgr_school[CC] = ''
     if not dint_school.empty and CC not in dint_school.columns:
         dint_school[CC] = ''
     
-    return dp, dm, dh, ds, db, dl, dv, dper, dstat, dair, dfloor, dgaming, dsda, dmda, dspare, ddt, dgr_books, dint_books, dgr_school, dpriv, dint_school, available_sheets
+    return dp, dm, dh, ds, db, dl, dv, dper, dstat, dair, dfloor, dgaming, dsda, dmda, dspare, ddt, dgr_books, dint_books, dgr_school, dpriv, dint_school, dmanga, available_sheets
 
 try:
 
-    df_products, df_music, df_history, df_slots, df_books, df_laptops, df_vacuums, df_peripherals, df_stationery, df_air, df_floor, df_gaming, df_sda, df_mda, df_spare, df_desktops, df_greek_books, df_int_books, df_school_books, df_private_school, df_int_school, sheets_loaded = load_all_data()
+    df_products, df_music, df_history, df_slots, df_books, df_laptops, df_vacuums, df_peripherals, df_stationery, df_air, df_floor, df_gaming, df_sda, df_mda, df_spare, df_desktops, df_greek_books, df_int_books, df_school_books, df_private_school, df_int_school, df_manga, sheets_loaded = load_all_data()
     compat_cols_found = [c for c in COMPAT_COLS if c in df_products.columns]
 except Exception as e:
     st.error(f"🚨 Error loading data: {e}")
@@ -8743,6 +8796,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z'/%3E%3Cpath d='M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z'/%3E%3C/svg%3E"},
         {"key": "International Books", "label": "Ξενόγλωσσα\nΒιβλία",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='2' y1='12' x2='22' y2='12'/%3E%3Cpath d='M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'/%3E%3C/svg%3E"},
+        {"key": "Manga", "label": "Manga",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6s2-1 5-1 5 1 5 1v13s-2-1-5-1-5 1-5 1z'/%3E%3Cpath d='M12 6s2-1 5-1 5 1 5 1v13s-2-1-5-1-5 1-5 1z'/%3E%3Ccircle cx='17' cy='10' r='1'/%3E%3C/svg%3E"},
         {"key": "Greek School Books", "label": "Σχολικά\nΒιβλία",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 10v6M2 10l10-5 10 5-10 5z'/%3E%3Cpath d='M6 12v5c3 3 9 3 12 0v-5'/%3E%3C/svg%3E"},
         {"key": "Private School Books", "label": "Ιδιωτικά\nΣχολεία",
@@ -10348,6 +10403,77 @@ else:
                                 lambda x: 0 if (pd.isna(x) or str(x).strip().lower() in ['', '0', '-', 'nan']) else 1)
                             matching_books = matching_books.sort_values('_has_series', ascending=False)
                         trigger = matching_books.iloc[0]
+    
+    # ── v28.55: Manga ───────────────────────────────────────────
+    elif active_cluster == "Manga":
+        if df_manga is None or df_manga.empty:
+            sheets_str = ", ".join(sheets_loaded) if sheets_loaded else "(none)"
+            st.sidebar.warning(
+                "Sheet 'MANGA' (or 'Sheet2') is empty or missing.\n\n"
+                f"**Sheets loaded**: {sheets_str}\n\n"
+                "Make sure `Recommendations GitHub IntBooks.xlsx` is committed "
+                "and its Sheet2 (MANGA / Comics) was converted to Parquet."
+            )
+            st.stop()
+        manga = df_manga.copy()
+        if 'Level 2' in manga.columns:
+            _m = manga['Level 2'].astype(str).str.strip() == 'Comics'
+            if _m.any():
+                manga = manga[_m]
+        if 'Hierarchy' in manga.columns:
+            _mh = manga['Hierarchy'].astype(str).str.strip() == 'MANGA'
+            if _mh.any():
+                manga = manga[_mh]
+
+        if not manga.empty:
+            # Optional series filter — 1,593 series; One Piece (148) / Naruto
+            # (109) / Bleach (94) dominate.
+            if 'Σειρά βιβλίου' in manga.columns:
+                sc = manga['Σειρά βιβλίου'].fillna('').astype(str)
+                sc = sc[(sc != '0') & (sc != '') & (sc != '-')
+                        & (sc.str.lower() != 'nan') & (sc.str.lower() != 'n/a')]
+                if len(sc) > 0:
+                    series_counts = sc.value_counts()
+                    top_series = series_counts.head(300)
+                    series_items = [(f"{name} ({count})", name) for name, count in top_series.items()]
+                    st.sidebar.markdown('<p class="sidebar-section">Φιλτράρισμα ανά Σειρά</p>', unsafe_allow_html=True)
+                    series_search = st.sidebar.text_input("🔍 Αναζήτηση σειράς:", placeholder="π.χ. One Piece", label_visibility="collapsed", key="mg_search")
+                    if series_search:
+                        matching = [(f"{name} ({count})", name) for name, count in series_counts.items() if series_search.lower() in name.lower()][:120]
+                        series_options = ['Όλες οι σειρές'] + [m[0] for m in matching]
+                        series_display = {m[0]: m[1] for m in matching}
+                    else:
+                        series_options = ['Όλες οι σειρές'] + [item[0] for item in series_items]
+                        series_display = {item[0]: item[1] for item in series_items}
+                    selected_series_display = st.sidebar.selectbox("", series_options, label_visibility="collapsed", key="mg_series")
+                    if selected_series_display != 'Όλες οι σειρές':
+                        actual_series = series_display.get(selected_series_display, selected_series_display)
+                        manga = manga[manga['Σειρά βιβλίου'] == actual_series]
+
+            # Optional mangaka filter
+            if 'Συγγραφέας' in manga.columns:
+                ac = manga['Συγγραφέας'].fillna('').astype(str)
+                ac = ac[(ac != '0') & (ac != '') & (ac.str.lower() != 'nan')]
+                if len(ac) > 0:
+                    st.sidebar.markdown('<p class="sidebar-section">Φιλτράρισμα ανά Συγγραφέα (προαιρετικό)</p>', unsafe_allow_html=True)
+                    author_search = st.sidebar.text_input("🔍 Αναζήτηση mangaka:", placeholder="π.χ. Kentaro Miura", label_visibility="collapsed", key="mg_author_search")
+                    if author_search:
+                        manga = manga[manga['Συγγραφέας'].fillna('').astype(str).str.lower().str.contains(author_search.lower(), na=False)]
+
+            st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Manga</p>', unsafe_allow_html=True)
+            if not manga.empty:
+                if 'Sum of Sales' in manga.columns:
+                    manga = manga.sort_values('Sum of Sales', ascending=False, na_position='last')
+                titles = manga['Title'].dropna().unique()
+                if len(titles) > 0:
+                    sel = st.sidebar.selectbox("", titles, label_visibility="collapsed", key="mg_sel")
+                    if sel:
+                        matching_manga = manga[manga['Title'] == sel].copy()
+                        if len(matching_manga) > 1 and 'Σειρά βιβλίου' in matching_manga.columns:
+                            matching_manga['_has_series'] = matching_manga['Σειρά βιβλίου'].apply(
+                                lambda x: 0 if (pd.isna(x) or str(x).strip().lower() in ['', '0', '-', 'nan']) else 1)
+                            matching_manga = matching_manga.sort_values('_has_series', ascending=False)
+                        trigger = matching_manga.iloc[0]
     
     # ── v28.30: Greek School Books ──────────────────────────────
     elif active_cluster == "Greek School Books":
@@ -12756,11 +12882,188 @@ def run_books_v2_engine(trigger, df_pool, df_history, category_key):
 
 
 # ═════════════════════════════════════════════════════════════
-# v28.30.27 — FOREIGN LANGUAGE LEARNING ENGINE
+# v28.55 — MANGA ENGINE (series-continuation)
 # ═════════════════════════════════════════════════════════════
-# (Config constants LL_* and helpers _ll_* are defined earlier, before the
-# sidebar trigger-picker, because that picker uses them at module load time.)
-def run_lang_learning_engine(trigger, df_int_school, df_kids_books):
+# Hybrid, spec-structured recommender for IntBooks Sheet2 (Hierarchy='MANGA').
+# See MANGA_CONFIG (defined near the books config) for the role/slot design.
+# Returns the standard (recs, diag, slot_notes, full_candidates) tuple.
+
+_MANGA_EDITION_RE = re.compile(
+    r'\((?:[^)]*\b(?:edition|omnibus|in-1|colossal|deluxe|box\s*set|collection|hardcover)\b[^)]*)\)',
+    re.I)
+_MANGA_DELUXE_RE = re.compile(
+    r'\b(deluxe|omnibus|colossal|hardcover|box\s*set|3-in-1|2-in-1|complete)\b', re.I)
+# Volume extracted from the Title. Order matters: explicit "Vol./Volume/#"
+# first, then ", N" trailing, then a bare trailing " N".
+_MANGA_VOL_PATTERNS = [
+    re.compile(r'(?:,?\s*vol\.?\s*|,?\s*volume\s*|\s*#\s*)(\d{1,3})', re.I),
+    re.compile(r',\s*(\d{1,3})\s*$'),
+    re.compile(r'\s(\d{1,3})\s*$'),
+]
+
+def _manga_nfd(s):
+    """Accent-insensitive, lowercased key for Greek/Latin matching."""
+    return (unicodedata.normalize('NFD', str(s))
+            .encode('ascii', 'ignore').decode('ascii').lower().strip())
+
+def _manga_clean(v):
+    s = str(v).strip()
+    return '' if s.lower() in ('', 'nan', 'none', '0', '-', 'n/a') else s
+
+def _manga_parse_vol(title):
+    """Best-effort volume number from a manga title (None if not found)."""
+    s = _MANGA_EDITION_RE.sub(' ', str(title))
+    for pat in _MANGA_VOL_PATTERNS:
+        m = pat.search(s)
+        if m:
+            try:
+                return int(m.group(1))
+            except (TypeError, ValueError):
+                pass
+    return None
+
+def _manga_is_deluxe(title):
+    return 1 if _MANGA_DELUXE_RE.search(str(title)) else 0
+
+def run_manga_engine(trigger, df_manga, df_history=None):
+    """Manga series-continuation engine. df_history kept for signature parity."""
+    cfg = MANGA_CONFIG
+    SER, AUTH, PUB = MANGA_SER_COL, MANGA_AUTH_COL, MANGA_PUB_COL
+    diag = []
+    slot_notes = {}
+
+    if df_manga is None or df_manga.empty:
+        diag.append(("manga pool empty", 0, ""))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    # Scope to the manga universe (defensive — the picker already filters).
+    pool = df_manga.copy()
+    if 'Level 2' in pool.columns:
+        m = pool['Level 2'].astype(str).str.strip().isin(cfg["level2_filter"])
+        if m.any():
+            pool = pool[m]
+    if 'Hierarchy' in pool.columns:
+        mh = pool['Hierarchy'].astype(str).str.strip().eq(cfg["hierarchy"])
+        if mh.any():
+            pool = pool[mh]
+    diag.append(("manga universe", len(pool), cfg["hierarchy"]))
+
+    # Derived helper columns (vectorised once).
+    ser_col  = SER  if SER  in pool.columns else None
+    auth_col = AUTH if AUTH in pool.columns else None
+    pub_col  = PUB  if PUB  in pool.columns else None
+    pool = pool.copy()
+    pool['_ser']    = pool[ser_col].apply(_manga_clean) if ser_col else ''
+    pool['_ser_n']  = pool['_ser'].apply(_manga_nfd) if ser_col else ''
+    pool['_auth']   = pool[auth_col].apply(_manga_clean) if auth_col else ''
+    pool['_auth_n'] = pool['_auth'].apply(_manga_nfd) if auth_col else ''
+    pool['_pub']    = pool[pub_col].apply(_manga_clean) if pub_col else ''
+    pool['_vol']    = pool['Title'].apply(_manga_parse_vol)
+    pool['_dlx']    = pool['Title'].apply(_manga_is_deluxe)
+    pool['_title_n']= pool['Title'].apply(_manga_nfd)
+    if 'Sum of Sales' in pool.columns:
+        pool['_sales'] = pd.to_numeric(pool['Sum of Sales'], errors='coerce').fillna(0.0)
+    else:
+        pool['_sales'] = 0.0
+
+    # Trigger signals.
+    t_mat    = trigger.get('Material')
+    t_ser_n  = _manga_nfd(trigger.get(SER, '')) if _manga_clean(trigger.get(SER, '')) else ''
+    t_auth_n = _manga_nfd(trigger.get(AUTH, '')) if _manga_clean(trigger.get(AUTH, '')) else ''
+    t_pub    = _manga_clean(trigger.get(PUB, ''))
+    t_vol    = _manga_parse_vol(trigger.get('Title'))
+    t_dlx    = _manga_is_deluxe(trigger.get('Title'))
+    diag.append(("trigger", 1,
+                 f"ser={t_ser_n[:18]} vol={t_vol} dlx={t_dlx} "
+                 f"auth={t_auth_n[:16]} pub={t_pub[:16]}"))
+
+    # Candidate pool: drop the trigger itself + de-dupe identical SKUs.
+    p = pool[pool['Material'] != t_mat].drop_duplicates(subset=['Material']).copy()
+    diag.append(("pool ex-self", len(p), ""))
+
+    picks = []
+    used = set()
+    used_titles = set()
+
+    def take(rows, role, cap, dedup_series=False, note=''):
+        seen_ser = set()
+        n = 0
+        for _, r in rows.iterrows():
+            if n >= cap:
+                break
+            if r['Material'] in used:
+                continue
+            if r['_title_n'] and r['_title_n'] in used_titles:
+                continue
+            if dedup_series and r['_ser_n'] and r['_ser_n'] in seen_ser:
+                continue
+            used.add(r['Material'])
+            if r['_title_n']:
+                used_titles.add(r['_title_n'])
+            seen_ser.add(r['_ser_n'])
+            picks.append((r, role))
+            n += 1
+        diag.append((role, n, note))
+
+    def dedup_by_vol(rows):
+        # One row per volume number: prefer the trigger's edition family
+        # (regular vs deluxe), then highest sales.
+        rows = rows.copy()
+        rows['_edm'] = (rows['_dlx'] == t_dlx).astype(int)
+        rows = rows.sort_values(['_vol', '_edm', '_sales'],
+                                ascending=[True, False, False])
+        return rows.drop_duplicates(subset=['_vol'], keep='first')
+
+    # 1) SERIES_NEXT — same series, next volumes, reading order.
+    if t_ser_n and t_vol is not None:
+        nxt = p[(p['_ser_n'] == t_ser_n) & (p['_vol'].notna()) & (p['_vol'] > t_vol)]
+        nxt = dedup_by_vol(nxt).sort_values('_vol')
+        take(nxt, 'SERIES_NEXT', cfg["n_series_next"], note='same series, next volumes')
+
+    # 2) SERIES_OTHER — remaining volumes of the same series (missed earlier,
+    #    omnibuses, spinoffs). Volume-ordered, then sales for the un-numbered.
+    if t_ser_n:
+        oth = p[(p['_ser_n'] == t_ser_n) & (~p['Material'].isin(used))].copy()
+        with_vol = dedup_by_vol(oth[oth['_vol'].notna()]).sort_values('_vol')
+        no_vol = oth[oth['_vol'].isna()].sort_values('_sales', ascending=False)
+        take(pd.concat([with_vol, no_vol]), 'SERIES_OTHER',
+             cfg["cap_series_other"], note='same series, other volumes')
+
+    # 3) SAME_AUTHOR — other series by the same mangaka.
+    if t_auth_n:
+        au = p[(p['_auth_n'] == t_auth_n) & (p['_ser_n'] != t_ser_n)
+               & (~p['Material'].isin(used))].sort_values('_sales', ascending=False)
+        take(au, 'SAME_AUTHOR', cfg["cap_same_author"],
+             dedup_series=True, note='same mangaka, other series')
+
+    # 4) SAME_PUBLISHER_POP — bestsellers from the same imprint.
+    if t_pub:
+        pb = p[(p['_pub'] == t_pub) & (p['_ser_n'] != t_ser_n)
+               & (~p['Material'].isin(used))].sort_values('_sales', ascending=False)
+        take(pb, 'SAME_PUBLISHER_POP', cfg["cap_same_pub"],
+             dedup_series=True, note='same publisher bestsellers')
+
+    # 5) TOP_MANGA — global bestseller backfill, one per series.
+    rest = p[~p['Material'].isin(used)].sort_values('_sales', ascending=False)
+    take(rest, 'TOP_MANGA', 12, dedup_series=True, note='top manga backfill')
+
+    # Assemble top 10.
+    rows_out = []
+    for i, (r, role) in enumerate(picks[:10], 1):
+        rr = r.copy()
+        rr['Assigned_Slot'] = i
+        rr['Slot_Role'] = role
+        rows_out.append(rr)
+        slot_notes.setdefault(i, []).append(
+            f"{role}: {str(r['Title'])[:54]} | "
+            f"ser={r['_ser'][:22]} vol={r['_vol']} sales={r['_sales']:.0f}")
+    recs = pd.DataFrame(rows_out)
+    full_candidates = pd.DataFrame([dict(r, Slot_Role=role) for r, role in picks])
+    diag.append(("filled", len(recs), "/10"))
+    return recs, diag, slot_notes, full_candidates
+
+
+
     """Ξενόγλωσσα Εκμάθηση recommender (foreign-language learning books)."""
     diag = []
     slot_notes = {1: [], 2: [], 3: [], 4: []}
@@ -31182,6 +31485,16 @@ elif active_cluster in BOOKS_V2_CLUSTERS:
         trigger, _book_pool, df_history, active_cluster)
     slot_diag = []
 
+# v28.55 — Manga (series-continuation engine). Self-contained; recommends
+# manga→manga (same-hierarchy exclusion deliberately not applied — see
+# MANGA_CONFIG). Slots 1-5 = next volumes of the same series in reading order,
+# then missed volumes, same mangaka, same publisher bestsellers, top-manga
+# backfill → 10/10.
+elif active_cluster == "Manga":
+    recs, diag, slot_notes, full_candidates = run_manga_engine(
+        trigger, df_manga, df_history)
+    slot_diag = []
+
 # v28.30 — Greek School Books (separate engine — different layout: school
 # books at slots 1-3, age-targeted stationery at 4-6, more school books at
 # 7-10 with stationery overflow if exhausted).
@@ -31399,6 +31712,21 @@ with st.expander("⚙️ System Diagnostics"):
             f"**Author:** `{t_auth_v2[:80]}` | **Publisher:** `{t_pub_v2}` | "
             f"**Theme:** `{t_theme_v2[:60]}` | **Language:** `{t_lang_v2}`"
         )
+    elif active_cluster == "Manga":
+        # v28.55 — manga diagnostic surface: the series-continuation signals
+        # the engine routes on (series + parsed volume + mangaka + imprint).
+        t_ser_mg  = str(trigger.get('Σειρά βιβλίου', '')).strip()
+        t_vol_mg  = _manga_parse_vol(trigger.get('Title'))
+        t_auth_mg = str(trigger.get('Συγγραφέας', '')).strip()
+        t_pub_mg  = str(trigger.get('Εκδότης', '')).strip()
+        t_ed_mg   = "Deluxe/Omnibus" if _manga_is_deluxe(trigger.get('Title')) else "Standard"
+        st.markdown(
+            f"**Series:** `{t_ser_mg}` | **Volume (parsed):** `{t_vol_mg}` | "
+            f"**Edition:** `{t_ed_mg}`"
+        )
+        st.markdown(
+            f"**Mangaka:** `{t_auth_mg[:80]}` | **Publisher:** `{t_pub_mg}`"
+        )
 
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
@@ -31424,6 +31752,13 @@ with st.expander("⚙️ System Diagnostics"):
                               'Θέμα Βιβλίου','Κατηγορία Βιβλίου','Γλώσσα Γραφής',
                               'Εξώφυλλο','Αριθμός Σελίδων','Ημερ/νία έκδοσης',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Manga":
+        # v28.55 — manga attributes: series + mangaka + imprint drive the
+        # series-continuation engine; volume is parsed from the Title at runtime.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Σειρά βιβλίου','Συγγραφέας','Εκδότης',
+                              'Εξώφυλλο','Αριθμός Σελίδων','Ημερ/νία έκδοσης',
+                              'Γλώσσα Γραφής','Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Greek School Books":
         # v28.30 — school book attributes: class + subject + publisher
         # drive the recommendation; show those plus general bibliographic
