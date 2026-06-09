@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.56.3-2026-06-09"
+APP_BUILD = "parquet-v28.56.4-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.56.3 — K-Pop CDs & Manga cross-sell engines.
+        🟢 Engine v28.56.4 — K-Pop CDs & Manga cross-sell engines.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -13065,6 +13065,41 @@ def _manga_collection_num(title):
                 return None
     return None
 
+# ── Sub-series detection ──────────────────────────────────────────────
+# Some "series" (per Σειρά βιβλίου) are actually meta-series split into
+# independently-numbered sub-series. The big one is JoJo's Bizarre Adventure
+# (Part 1 Phantom Blood, Part 3 Stardust Crusaders, Part 7 Steel Ball Run …)
+# — each Part restarts at Vol. 1. Continuation must stay WITHIN the trigger's
+# sub-series (Part 3 Vol.1 → Part 3 Vol.2,3,4…), never hop across Parts.
+def _manga_part_num(title):
+    m = re.search(r'\bpart\s*(\d+)', str(title), re.I)
+    if m:
+        try:
+            return int(m.group(1))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+def _manga_base_title(title):
+    """Title stripped of edition markers and the trailing volume token — the
+    sub-series 'stem' (e.g. 'Berserk', 'Blue Lock: Episode Nagi'). Punctuation
+    is collapsed so ':' vs '-' title variants of the same sub-series converge
+    (e.g. 'Demon Slayer: Kimetsu…' == 'Demon Slayer- Kimetsu…')."""
+    t = _MANGA_EDITION_RE.sub(' ', str(title))
+    t = re.sub(r'(?:,?\s*vol\.?\s*\d+.*$|,?\s*volume\s*\d+.*$|\s*#\s*\d+.*$'
+               r'|,\s*\d+\s*$|\s+\d+\s*$)', '', t, flags=re.I)
+    t = _manga_nfd(t)
+    t = re.sub(r'[^a-z0-9]+', ' ', t).strip()
+    return t
+
+def _manga_subkey(title):
+    """Stable sub-series key within a Σειρά: the Part number when present
+    (robust to ':' vs '--' punctuation noise), else the stripped stem."""
+    pn = _manga_part_num(title)
+    if pn is not None:
+        return f"part:{pn}"
+    return f"stem:{_manga_base_title(title)}"
+
 def run_manga_engine(trigger, df_manga, df_history=None):
     """Manga series-continuation engine. df_history kept for signature parity."""
     cfg = MANGA_CONFIG
@@ -13117,9 +13152,10 @@ def run_manga_engine(trigger, df_manga, df_history=None):
     t_dlx    = _manga_is_deluxe(trigger.get('Title'))
     t_fam    = _manga_edition_family(trigger.get('Title'))
     t_cnum   = _manga_collection_num(trigger.get('Title'))
+    t_subkey = _manga_subkey(trigger.get('Title'))
     diag.append(("trigger", 1,
                  f"ser={t_ser_n[:18]} vol={t_vol} fam={t_fam} cnum={t_cnum} "
-                 f"auth={t_auth_n[:16]} pub={t_pub[:16]}"))
+                 f"sub={t_subkey[:18]} auth={t_auth_n[:14]} pub={t_pub[:14]}"))
 
     # Candidate pool: drop the trigger itself + de-dupe identical SKUs.
     p = pool[pool['Material'] != t_mat].drop_duplicates(subset=['Material']).copy()
@@ -13152,9 +13188,12 @@ def run_manga_engine(trigger, df_manga, df_history=None):
     # ── SAME-SERIES ordered list (which volumes, in what reading order) ──
     # Edition-LINE aware: a special-edition trigger (deluxe / box set / omnibus)
     # stays on its own line; box sets / omnibuses order by collection number.
-    # Forward (next) first; if caught up, the volumes right before (descending)
-    # then the start; spinoffs / other editions last.
+    # SUB-SERIES aware: a meta-series (e.g. JoJo's Parts) continues within the
+    # trigger's own Part — Part 3 Vol.1 → Part 3 Vol.2,3,4… — never hopping to
+    # another Part. Forward (next) first; if caught up, the volumes right before
+    # (descending) then the start; other Parts / editions / spinoffs last.
     SPECIAL_FAMS = {'boxset', 'omnibus', 'deluxe'}
+    COLLECTED_FAMS = {'boxset', 'omnibus'}
     series_ranked = []
     n_fwd = 0
     if t_ser_n:
@@ -13162,9 +13201,19 @@ def run_manga_engine(trigger, df_manga, df_history=None):
         same_series['_seq'] = same_series['_cnum']
         same_series.loc[same_series['_seq'].isna(), '_seq'] = \
             same_series.loc[same_series['_seq'].isna(), '_vol']
+        same_series['_subkey'] = same_series['Title'].apply(_manga_subkey)
+        same_series['_part'] = same_series['Title'].apply(_manga_part_num)
         line_fam = t_fam if t_fam in SPECIAL_FAMS else 'standard'
-        line = same_series[same_series['_fam'] == line_fam].copy()
         t_seq = t_cnum if t_cnum is not None else t_vol
+
+        # The continuation LINE. Collected formats chain across the whole series
+        # by collection number; everything else stays within the trigger's
+        # sub-series (Part / stem) so multi-part series don't interleave.
+        if t_fam in COLLECTED_FAMS:
+            line = same_series[same_series['_fam'] == t_fam].copy()
+        else:
+            line = same_series[(same_series['_fam'] == line_fam)
+                               & (same_series['_subkey'] == t_subkey)].copy()
 
         # one row per sequence on the line (highest-sales edition wins)
         line_u = (line.sort_values(['_seq', '_sales'], ascending=[True, False])
@@ -13179,9 +13228,6 @@ def run_manga_engine(trigger, df_manga, df_history=None):
             fwd = line_u.iloc[0:0]
             before_pos = line_u.iloc[0:0]
         noseq = line[line['_seq'].isna()].sort_values('_sales', ascending=False)
-        other_fmt = same_series[same_series['_fam'] != line_fam].copy()
-        other_fmt['_vs'] = other_fmt['_vol'].fillna(9999)
-        other_fmt = other_fmt.sort_values(['_vs', '_sales'], ascending=[True, False])
 
         fwd_list = pick(fwd, 50)
         n_fwd = len(fwd_list)
@@ -13198,7 +13244,16 @@ def run_manga_engine(trigger, df_manga, df_history=None):
             foundation = before_pos.sort_values('_seq', ascending=True)
             tail_pool = pd.concat([prequel, recent, foundation, noseq])
         tail_list = pick(tail_pool.drop_duplicates('Material'), 50)
-        of_list = pick(other_fmt, 50)
+
+        # OTHERS — the rest of the same series (other Parts / editions /
+        # spinoffs), grouped so each sub-series stays contiguous: by Part number
+        # (then sub-series), each in volume order, popular Parts first.
+        others = same_series[~same_series['Material'].isin(used)].copy()
+        others['_pn'] = others['_part'].fillna(999)
+        others['_sq'] = others['_seq'].fillna(9999)
+        others = others.sort_values(['_pn', '_subkey', '_sq', '_sales'],
+                                    ascending=[True, True, True, False])
+        of_list = pick(others, 50)
         series_ranked = fwd_list + tail_list + of_list
     n_series = len(series_ranked)
     series_mats = {r['Material'] for r in series_ranked}
