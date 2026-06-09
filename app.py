@@ -14,6 +14,10 @@ from difflib import SequenceMatcher
 
 st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
+# Visible build marker — bump this when deploying so you can confirm in the
+# live app which version is running (shown in the sidebar).
+APP_BUILD = "parquet-2026-06-09"
+
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
 # ─────────────────────────────────────────────────────────────
@@ -9073,6 +9077,9 @@ st.sidebar.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Build/version marker so you can confirm which version the live app is running.
+st.sidebar.caption(f"🔖 build: {APP_BUILD}")
 
 # Header with close button
 st.sidebar.markdown('''
