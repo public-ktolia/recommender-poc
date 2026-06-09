@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.54.4-2026-06-09"
+APP_BUILD = "parquet-v28.54.5-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.54.4 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing) — hard platform-lock × sales × χρώμα × brand-match (accessories) × keyword routing. v28.54.4: ΠΟΤΕ δεύτερο χειριστήριο/gamepad ως αξεσουάρ (drop misfiled pads π.χ. Horipad Turbo σε VARIOUS), drop device-specific handheld gear (ROG Ally / ROG Xbox Ally cases & docks), drop orphan wheel add-ons (πετάλια/μοχλός/βάση) σε gamepad personas (μόνο για τιμόνι). + v28.54.3: no cross-gen PS bleed, special editions → χωρίς cover, wheel games μόνο για supported platforms, themed boost μόνο σε real franchises, no-same-type dedup (wallet/seat/wheel). Same-hierarchy exclusion, domain-scoped backfill → 10/10.
+        🟢 Engine v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing) — hard platform-lock × sales × χρώμα × brand-match × keyword routing. v28.54.5 (racing rig): δεν προτείνει add-on που το τιμόνι ΗΔΗ έχει (G923 με μοχλό → όχι 2ος μοχλός· πετάλια bundled → όχι πετάλια), και προτείνει το add-on που ΛΕΙΠΕΙ προβεβλημένα στο slot 1 brand-matched (G29 χωρίς μοχλό → Logitech Driving Force Shifter στο slot 1 αντί για καρέκλα). + v28.54.4: ποτέ δεύτερο gamepad, drop handheld gear (ROG Ally/ROG Xbox Ally), orphan wheel add-ons μόνο σε τιμόνι. Same-hierarchy exclusion, no-same-type dedup, domain-scoped backfill → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -5880,6 +5880,8 @@ CTRL_MARKETING_COPY = {
     'Συνδρομή & Πίστωση':   'Online παιχνίδι, δωρεάν τίτλοι & πίστωση.',
     'Θήκη Μεταφοράς':       'Πάρ’ το παντού, ασφαλές & τακτοποιημένο.',
     'Αξεσουάρ Gaming':      'Αναβάθμισε το setup σου.',
+    'Μοχλός Ταχυτήτων':     'Ρεαλιστικές αλλαγές ταχυτήτων — ολοκλήρωσε το cockpit.',
+    'Πετάλια':              'Πετάλια για πιο ρεαλιστική οδήγηση.',
 }
 
 # Group → (fallback role-label, marketing-copy) used when the universal
@@ -5914,7 +5916,7 @@ CTRL_CASE_RE  = re.compile(r'θήκη|case|carry|μεταφορ|sleeve|protectio
 # toy holder — neither is a valid COMPLEMENT for a sim-racing wheel trigger.
 # Used to keep these out of the RACING accessory/extra/backfill pools.
 CTRL_WHEEL_RE = re.compile(r'τιμονιέρα|τιμονιερα|σχήμα τιμον|racing wheel|steering wheel|'
-                           r'gaming wheel|driving force|joy-?con.*τιμον|wheel.*joy-?con', re.I)
+                           r'gaming wheel|joy-?con.*τιμον|wheel.*joy-?con', re.I)
 # Console "covers"/faceplates/skins — the user does not want these recommended
 # (a console faceplate is not a controller companion). Carry cases stay allowed.
 CTRL_COVER_RE = re.compile(r'κάλυμμα κονσόλ|console cover|faceplate|πρόσοψη|console skin|'
@@ -5925,6 +5927,14 @@ CTRL_COVER_RE = re.compile(r'κάλυμμα κονσόλ|console cover|faceplate
 CTRL_HANDHELD_DOCK_RE = re.compile(r'rog\b[\w\s]*\bally\b|steam deck|legion go|msi claw|ayaneo', re.I)
 # Joy-Con specific accessories — incompatible with a Switch *Pro Controller*.
 CTRL_JOYCON_RE = re.compile(r'joy-?con', re.I)
+# Racing-rig add-ons — used to (a) avoid recommending one the wheel ALREADY
+# bundles, and (b) prioritise the one it lacks. Apply to accent-stripped text.
+CTRL_SHIFTER_RE = re.compile(r'μοχλ\w*\s*ταχυτ|\bshifter\b|gear\s*shift|sequential shift', re.I)
+CTRL_PEDALS_RE  = re.compile(r'πεταλ|\bpedal', re.I)
+
+def _ctrl_norm(s):
+    s = unicodedata.normalize('NFD', str(s).lower())
+    return ''.join(c for c in s if not unicodedata.combining(c))
 
 # Coarse product-type token — used to avoid recommending two of the *same type*
 # (e.g. two gaming chairs) even when they share a hierarchy. Games are exempt
@@ -29424,6 +29434,8 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
     # For a racing wheel, the platforms it actually supports come from its title
     # ("για PS5, PS4, PC"). Games for unsupported platforms (e.g. Xbox) are wrong.
     wheel_platforms = set()
+    wheel_has_shifter = False
+    wheel_has_pedals  = False
     if racing_only:
         _wl = tt.lower()
         if re.search(r'ps5|playstation 5', _wl):           wheel_platforms.add('ps5')
@@ -29433,6 +29445,10 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
         if re.search(r'switch', _wl):                      wheel_platforms.add('switch')
         if not wheel_platforms:
             wheel_platforms = {'ps5', 'ps4', 'xbox', 'pc', 'switch'}
+        # Does the wheel already INCLUDE a shifter / pedals? (don't re-sell them)
+        _wn = _ctrl_norm(tt)
+        wheel_has_shifter = bool(CTRL_SHIFTER_RE.search(_wn))
+        wheel_has_pedals  = bool(CTRL_PEDALS_RE.search(_wn))
 
     # First colour token (e.g. "Λευκό", "Μαύρο") for the colour-match boost.
     tcolor_token = re.split(r'[\s/;,]+', tcolor)[0].strip().lower() if tcolor else ''
@@ -29481,6 +29497,16 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
         _wheel_like = _dt.str.contains(CTRL_WHEEL_RE, na=False)
         _is_game    = domain_pool['_hier_u'].str.endswith('GAMES')
         domain_pool = domain_pool[~(_wheel_like & ~_is_game)].copy()
+        # Don't re-sell an add-on the wheel ALREADY bundles. A G923 ships with a
+        # shifter, so no shifter; both G29/G923 ship with pedals, so no pedals.
+        _ng = ~domain_pool['_hier_u'].str.endswith('GAMES')
+        _nt = domain_pool['Title'].map(_ctrl_norm)
+        if wheel_has_shifter:
+            domain_pool = domain_pool[~(_nt.str.contains(CTRL_SHIFTER_RE, na=False) & _ng)].copy()
+            _ng = ~domain_pool['_hier_u'].str.endswith('GAMES'); _nt = domain_pool['Title'].map(_ctrl_norm)
+        if wheel_has_pedals:
+            _ped_only = _nt.str.contains(CTRL_PEDALS_RE, na=False) & ~_nt.str.contains(CTRL_SHIFTER_RE, na=False)
+            domain_pool = domain_pool[~(_ped_only & _ng)].copy()
 
     # NO COVERS: console faceplates/skins are never a controller companion.
     _ct = domain_pool['Title'].fillna('').astype(str)
@@ -29594,7 +29620,33 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
     last_role = None
     for slot_num, role, grp, logic in CTRL_SLOTS:
         notes = [f"Logic: {logic} · group={grp} · persona={persona_key}"]
-        pool = _group_pool(grp)
+        slot_role = role
+        racing_dock_addon = False
+
+        if racing_only and logic == 'DOCK':
+            # A wheel can't be charged — repurpose slot 1 for the most valuable
+            # MISSING rig add-on: a shifter if the wheel has none (the G29 case),
+            # else pedals if it has none. Brand-matched to the wheel (Logitech
+            # shifter for a Logitech wheel). If the rig is already complete
+            # (G923 bundles a shifter), fall through to the universal backfill.
+            addon = domain_pool[~domain_pool['Material'].isin(used_materials)].copy()
+            _na = addon['Title'].map(_ctrl_norm)
+            sub = addon.iloc[0:0]
+            if not wheel_has_shifter:
+                sm = _na.str.contains(CTRL_SHIFTER_RE, na=False)
+                if sm.any():
+                    sub = addon[sm]; slot_role = 'Μοχλός Ταχυτήτων'
+            if sub.empty and not wheel_has_pedals:
+                pm = _na.str.contains(CTRL_PEDALS_RE, na=False)
+                if pm.any():
+                    sub = addon[pm]; slot_role = 'Πετάλια'
+            if sub.empty:
+                slot_notes[slot_num] = notes + ["⊘ rig already complete (shifter & pedals bundled) → backfill"]
+                diag.append((f"Slot {slot_num} ({role})", 0, "No missing rig add-on → backfill")); continue
+            pool = sub
+            racing_dock_addon = True
+        else:
+            pool = _group_pool(grp)
         pool = pool[~pool['Material'].isin(used_materials)]
 
         if pool.empty:
@@ -29608,7 +29660,16 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
         if logic != 'GAME':          # brand-match is for accessories, not games
             pool = _brand_boost(pool, notes)
 
-        if logic == 'DOCK':
+        if racing_dock_addon:
+            # Strongly prefer the same brand as the wheel (e.g. Logitech).
+            wbrand = (tbrand.split()[0] if tbrand else '')
+            if wbrand:
+                bm = pool['Title'].fillna('').astype(str).str.upper().str.contains(re.escape(wbrand), na=False)
+                pool.loc[bm, 'Final_Score'] += 50000
+                if bm.any():
+                    notes.append(f"🏁 Missing rig add-on ({slot_role}) · prefer {wbrand}: +50000 to {int(bm.sum())}")
+            # (skip the generic DOCK keyword boost)
+        elif logic == 'DOCK':
             title = pool['Title'].fillna('').astype(str)
             pool = pool[~title.str.contains(CTRL_HDMI_RE, na=False)]   # never an HDMI/video cable
             if pool.empty:
@@ -29763,8 +29824,8 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
         chosen = pool.iloc[0]
         rc = chosen.copy()
         rc['Assigned_Slot']  = slot_num
-        rc['Slot_Role']      = role
-        rc['Marketing_Copy'] = CTRL_MARKETING_COPY.get(role, 'Ιδανική επιλογή.')
+        rc['Slot_Role']      = slot_role
+        rc['Marketing_Copy'] = CTRL_MARKETING_COPY.get(slot_role, 'Ιδανική επιλογή.')
         all_recs.append(rc)
         used_materials.add(chosen['Material'])
         used_titles_sig.add(_sig(chosen['Title']))
@@ -29773,10 +29834,10 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
             fr = _psg_extract_franchise(chosen['Title'])
             if fr:
                 used_franchises.add(fr)
-        last_role = role
+        last_role = slot_role
         slot_notes[slot_num] = notes
         diag.append((
-            f"Slot {slot_num} ({role})", 1,
+            f"Slot {slot_num} ({slot_role})", 1,
             f"€{float(chosen.get('_p', 0)):.0f} · sales={float(chosen.get('Sales_30', 0)):.0f} · "
             f"score={float(chosen.get('Final_Score', 0)):.0f} · {str(chosen.get('Title', ''))[:55]}",
         ))
