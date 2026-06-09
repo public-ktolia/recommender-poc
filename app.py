@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.56.2-2026-06-09"
+APP_BUILD = "parquet-v28.56.3-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.56.2 — K-Pop CDs & Manga cross-sell engines.
+        🟢 Engine v28.56.3 — K-Pop CDs & Manga cross-sell engines.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -13125,15 +13125,16 @@ def run_manga_engine(trigger, df_manga, df_history=None):
     p = pool[pool['Material'] != t_mat].drop_duplicates(subset=['Material']).copy()
     diag.append(("pool ex-self", len(p), ""))
 
-    picks = []
     used = set()
     used_titles = set()
 
-    def take(rows, role, cap, dedup_series=False, note=''):
+    def pick(rows, cap, dedup_series=False):
+        """Collect up to `cap` rows, skipping used SKUs/titles and (optionally)
+        repeated series. Marks chosen rows used."""
+        out = []
         seen_ser = set()
-        n = 0
         for _, r in rows.iterrows():
-            if n >= cap:
+            if len(out) >= cap:
                 break
             if r['Material'] in used:
                 continue
@@ -13145,130 +13146,144 @@ def run_manga_engine(trigger, df_manga, df_history=None):
             if r['_title_n']:
                 used_titles.add(r['_title_n'])
             seen_ser.add(r['_ser_n'])
-            picks.append((r, role))
-            n += 1
-        diag.append((role, n, note))
+            out.append(r)
+        return out
 
-    def dedup_by_vol(rows):
-        # One row per volume number: prefer the trigger's edition FAMILY
-        # (box-set vs omnibus vs deluxe vs single), then highest sales.
-        rows = rows.copy()
-        rows['_edm'] = (rows['_fam'] == t_fam).astype(int)
-        rows = rows.sort_values(['_vol', '_edm', '_sales'],
-                                ascending=[True, False, False])
-        return rows.drop_duplicates(subset=['_vol'], keep='first')
-
-    # 1) + 2) SERIES continuation — forward on the trigger's OWN edition line,
-    #    then a context-aware "other" fill. Behaviours from live tuning:
-    #      • A SPECIAL-edition trigger (deluxe / box set / omnibus) stays on its
-    #        own line — a Berserk DELUXE never falls back to standard Berserk
-    #        volumes (that re-shows the same story in a worse edition). Box sets
-    #        / omnibuses order by COLLECTION number, not the inner chapter-vol.
-    #      • If forward continuation is plentiful (≥3 next), keep SERIES_OTHER
-    #        short (prequel / a little forward) and leave slots for discovery
-    #        (same mangaka / publisher) — otherwise a long series floods all 10
-    #        slots with itself.
-    #      • If the reader is caught up (no/few next — e.g. the latest volume),
-    #        SERIES_OTHER leads with the volumes right BEFORE the trigger
-    #        (descending: 22, 21 …) then the foundational start (1, 2, 3 …).
+    # ── SAME-SERIES ordered list (which volumes, in what reading order) ──
+    # Edition-LINE aware: a special-edition trigger (deluxe / box set / omnibus)
+    # stays on its own line; box sets / omnibuses order by collection number.
+    # Forward (next) first; if caught up, the volumes right before (descending)
+    # then the start; spinoffs / other editions last.
     SPECIAL_FAMS = {'boxset', 'omnibus', 'deluxe'}
+    series_ranked = []
+    n_fwd = 0
     if t_ser_n:
         same_series = p[p['_ser_n'] == t_ser_n].copy()
-        # Unified sequence: collection number when present, else chapter-volume.
         same_series['_seq'] = same_series['_cnum']
         same_series.loc[same_series['_seq'].isna(), '_seq'] = \
             same_series.loc[same_series['_seq'].isna(), '_vol']
-        # The trigger's edition LINE (special editions get their own line;
-        # everything else shares the 'standard' main line).
         line_fam = t_fam if t_fam in SPECIAL_FAMS else 'standard'
         line = same_series[same_series['_fam'] == line_fam].copy()
         t_seq = t_cnum if t_cnum is not None else t_vol
 
-        # FORWARD — next items on the same edition line, reading order.
-        if t_seq is not None:
-            nxt = line[line['_seq'].notna() & (line['_seq'] > t_seq)]
-            nxt = (nxt.sort_values(['_seq', '_sales'], ascending=[True, False])
+        # one row per sequence on the line (highest-sales edition wins)
+        line_u = (line.sort_values(['_seq', '_sales'], ascending=[True, False])
                       .drop_duplicates('_seq'))
-            take(nxt, 'SERIES_NEXT', cfg["n_series_next"],
-                 note=f'same series, next ({line_fam})')
-        n_fwd = sum(1 for _, role in picks if role == 'SERIES_NEXT')
-        diag.append(("series mode", n_fwd,
-                     "continuing" if n_fwd >= 3 else "caught-up/short"))
-
-        # One row per sequence on the line (highest-sales edition wins).
-        line_rem = (line[~line['Material'].isin(used)]
-                    .sort_values(['_seq', '_sales'], ascending=[True, False])
-                    .drop_duplicates('_seq'))
-        prequel = line_rem[line_rem['_seq'] == 0]
+        prequel = line_u[line_u['_seq'] == 0]
         if t_seq is not None:
-            before = line_rem[(line_rem['_seq'].notna()) & (line_rem['_seq'] > 0)
-                              & (line_rem['_seq'] < t_seq)]
-            after_left = line_rem[line_rem['_seq'].notna() & (line_rem['_seq'] > t_seq)]
+            fwd = line_u[line_u['_seq'].notna() & (line_u['_seq'] > t_seq)] \
+                .sort_values('_seq')
+            before_pos = line_u[(line_u['_seq'].notna()) & (line_u['_seq'] > 0)
+                                & (line_u['_seq'] < t_seq)]
         else:
-            before = line_rem.iloc[0:0]
-            after_left = line_rem[line_rem['_seq'].notna()]
-        noseq = (line[line['_seq'].isna() & (~line['Material'].isin(used))]
-                 .sort_values('_sales', ascending=False))
-        # Other-format editions / spinoffs of the series (lowest priority).
-        other_fmt = same_series[(same_series['_fam'] != line_fam)
-                                & (~same_series['Material'].isin(used))].copy()
+            fwd = line_u.iloc[0:0]
+            before_pos = line_u.iloc[0:0]
+        noseq = line[line['_seq'].isna()].sort_values('_sales', ascending=False)
+        other_fmt = same_series[same_series['_fam'] != line_fam].copy()
         other_fmt['_vs'] = other_fmt['_vol'].fillna(9999)
         other_fmt = other_fmt.sort_values(['_vs', '_sales'], ascending=[True, False])
 
+        fwd_list = pick(fwd, 50)
+        n_fwd = len(fwd_list)
+        diag.append(("series mode", n_fwd,
+                     "continuing" if n_fwd >= 3 else "caught-up/short"))
         if n_fwd >= 3:
-            # CONTINUING — keep OTHER short; reserve slots 8-10 for discovery.
-            other_cap = 2
-            other_pool = pd.concat([prequel,
-                                    after_left.sort_values('_seq'),
-                                    before.sort_values('_seq', ascending=False)])
+            # plenty of forward continuation
+            tail_pool = pd.concat([prequel,
+                                   before_pos.sort_values('_seq', ascending=False),
+                                   noseq])
         else:
-            # CAUGHT UP / short — fill from the series itself: the volumes right
-            # before (descending) then the start (ascending), then leftovers.
-            other_cap = cfg["cap_series_other"]
-            recent = before.sort_values('_seq', ascending=False).head(2)
-            foundation = before.sort_values('_seq', ascending=True)
-            other_pool = pd.concat([prequel, recent, foundation,
-                                    after_left.sort_values('_seq'),
-                                    noseq, other_fmt])
-        other_pool = other_pool.drop_duplicates(subset=['Material'])
-        take(other_pool, 'SERIES_OTHER', other_cap,
-             note='same series, other volumes')
+            # caught up / short → volumes right before (descending) then start
+            recent = before_pos.sort_values('_seq', ascending=False).head(2)
+            foundation = before_pos.sort_values('_seq', ascending=True)
+            tail_pool = pd.concat([prequel, recent, foundation, noseq])
+        tail_list = pick(tail_pool.drop_duplicates('Material'), 50)
+        of_list = pick(other_fmt, 50)
+        series_ranked = fwd_list + tail_list + of_list
+    n_series = len(series_ranked)
+    series_mats = {r['Material'] for r in series_ranked}
 
-    # 3) SAME_AUTHOR — other series by the same mangaka.
+    # ── OTHER-BOOKS ordered list (discovery — other manga) ──
+    # Same mangaka → same publisher bestsellers → top manga overall.
+    other_ranked = []
     if t_auth_n:
-        au = p[(p['_auth_n'] == t_auth_n) & (p['_ser_n'] != t_ser_n)
-               & (~p['Material'].isin(used))].sort_values('_sales', ascending=False)
-        take(au, 'SAME_AUTHOR', cfg["cap_same_author"],
-             dedup_series=True, note='same mangaka, other series')
-
-    # 4) SAME_PUBLISHER_POP — bestsellers from the same imprint.
+        au = p[(p['_auth_n'] == t_auth_n) & (p['_ser_n'] != t_ser_n)] \
+            .sort_values('_sales', ascending=False)
+        other_ranked += pick(au, cfg["cap_same_author"], dedup_series=True)
     if t_pub:
-        pb = p[(p['_pub'] == t_pub) & (p['_ser_n'] != t_ser_n)
-               & (~p['Material'].isin(used))].sort_values('_sales', ascending=False)
-        take(pb, 'SAME_PUBLISHER_POP', cfg["cap_same_pub"],
-             dedup_series=True, note='same publisher bestsellers')
+        pb = p[(p['_pub'] == t_pub) & (p['_ser_n'] != t_ser_n)] \
+            .sort_values('_sales', ascending=False)
+        other_ranked += pick(pb, cfg["cap_same_pub"], dedup_series=True)
+    topm = p[p['_ser_n'] != t_ser_n].sort_values('_sales', ascending=False)
+    other_ranked += pick(topm, 40, dedup_series=True)
 
-    # 5) TOP_MANGA — global bestseller backfill, one per series.
-    rest = p[~p['Material'].isin(used)].sort_values('_sales', ascending=False)
-    take(rest, 'TOP_MANGA', 12, dedup_series=True, note='top manga backfill')
+    # ── MATRIX placement ("two sets of slots" spec) ──
+    # n = recommendable same-series books → (front, back) Same-Series slot
+    # counts. Front = slots 1..front; back = the last `back` slots (8-10); the
+    # middle band is Other Books (discovery). Derived directly from the agreed
+    # matrix: 0/1→none, 2→1, 3-5→2, 6-7→4 (front only), 8+→4 front + 3 back.
+    def _front_back(n):
+        if n <= 0:
+            return (0, 0)
+        if n == 1:
+            return (1, 0)
+        if n <= 4:
+            return (2, 0)
+        if n <= 6:
+            return (4, 0)
+        return (4, 3)
+    front, back = _front_back(n_series)
+    if n_series - front < back:        # don't reserve a back cluster we can't fill
+        back = max(0, n_series - front)
+    plan = ['SS' if (slot <= front or slot > 10 - back) else 'OB'
+            for slot in range(1, 11)]
 
-    # Assemble top 10.
+    # ── Fill, guaranteeing 10/10 (SS slots pull series, OB slots pull other;
+    #    either falls back to the other list, then to a global top-manga sweep) ──
+    placed = set()
+    _si = [0]; _oi = [0]; _gi = [0]
+    glist = [r for _, r in p.sort_values('_sales', ascending=False).iterrows()]
+
+    def _take(seq_list, idx):
+        while idx[0] < len(seq_list):
+            r = seq_list[idx[0]]; idx[0] += 1
+            if r['Material'] not in placed:
+                return r
+        return None
+
     rows_out = []
-    n_picks = len(picks[:10])
-    for i, (r, role) in enumerate(picks[:10], 1):
+    for slot, kind in zip(range(1, 11), plan):
+        if kind == 'SS':
+            r = _take(series_ranked, _si)
+            if r is None:
+                r = _take(other_ranked, _oi)
+        else:
+            r = _take(other_ranked, _oi)
+            if r is None:
+                r = _take(series_ranked, _si)
+        if r is None:
+            r = _take(glist, _gi)
+        if r is None:
+            continue
+        placed.add(r['Material'])
+        role = 'Same Series' if r['Material'] in series_mats else 'Other Books'
         rr = r.copy()
-        rr['Assigned_Slot'] = i
+        rr['Assigned_Slot'] = slot
         rr['Slot_Role'] = role
-        # Final_Score: monotonic rank (slot 1 highest) so the shared "Final
-        # Recommendations" table renders. Real ordering is the role tier +
-        # within-tier sales used above.
-        rr['Final_Score'] = float((n_picks - i + 1) * 1000 + min(r['_sales'], 999))
+        rr['Final_Score'] = float((11 - slot) * 1000 + min(r['_sales'], 999))
         rows_out.append(rr)
-        slot_notes.setdefault(i, []).append(
+        slot_notes.setdefault(slot, []).append(
             f"{role}: {str(r['Title'])[:54]} | "
             f"ser={r['_ser'][:22]} vol={r['_vol']} sales={r['_sales']:.0f}")
+
+    diag.append(("same-series avail", n_series, f"front={front} back={back}"))
+    diag.append(("other-books avail", len(other_ranked), ""))
     recs = pd.DataFrame(rows_out)
-    full_candidates = pd.DataFrame([dict(r, Slot_Role=role) for r, role in picks])
+    full_candidates = pd.DataFrame(
+        [dict(r, Slot_Role=('Same Series' if r['Material'] in series_mats
+                            else 'Other Books'))
+         for r in (series_ranked + other_ranked)]
+    ) if (series_ranked or other_ranked) else pd.DataFrame()
     diag.append(("filled", len(recs), "/10"))
     return recs, diag, slot_notes, full_candidates
 
