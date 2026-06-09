@@ -71,6 +71,10 @@
         {
           "name": "Spare",
           "path": "Recommendations_GitHub_Home/Spare.parquet"
+        },
+        {
+          "name": "Sheet1",
+          "path": "Recommendations_GitHub_Home/Sheet1.parquet"
         }
       ]
     },
@@ -97,6 +101,10 @@
         {
           "name": "Sheet1",
           "path": "Recommendations_GitHub_IntBooks/Sheet1.parquet"
+        },
+        {
+          "name": "Sheet2",
+          "path": "Recommendations_GitHub_IntBooks/Sheet2.parquet"
         }
       ]
     }
