@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.56-2026-06-09"
+APP_BUILD = "parquet-v28.56.1-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.56 — K-Pop CDs (Music sheet, Hierarchy='K-POP'): fan-collection engine. Όλα τα 10 slots είναι K-Pop CD. Υβριδικό: σχέση καλλιτέχνη/group (gate) × sales (κατάταξη) × version-collector λογική. Slots 1-2: ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ του ίδιου άλμπουμ (Deadline Black/Gray/Silver — "collect them all"). Slots 3-5: άλλα άλμπουμ του ΙΔΙΟΥ group (dedup ανά άλμπουμ, κρατάμε την best-selling έκδοση). Slots 6-7: ECOSYSTEM — solo μέλη ↔ group ↔ sub-units μέσω της στήλης Καλλιτέχνης.1 (RM;BTS, Jin;BTS, LISA;BLACKPINK), δηλ. ένα BTS άλμπουμ φέρνει Jin/RM solo & αντίστροφα. Slots 8-10: discovery — top K-Pop άλλων groups με boost ίδιας εταιρείας (HYBE/JYP/YG/SM). Top K-Pop backfill → 10/10. ΣΗΜΕΙΩΣΗ: same-hierarchy exclusion ΔΕΝ ισχύει — K-Pop→K-Pop ΕΙΝΑΙ η πρόταση. | v28.55 — Manga (Κόμικς): series-continuation engine. Routing ανά Σειρά βιβλίου × αριθμό τόμου από τον τίτλο × mangaka (Συγγραφέας) × εκδότη/imprint × sales. Slots 1-5: οι ΕΠΟΜΕΝΟΙ τόμοι της ίδιας σειράς με σειρά ανάγνωσης (Berserk Vol.7 → 8,9,10,11,12), dedup ανά τόμο (ένα edition/τόμο, deluxe vs regular). Μετά: τόμοι που λείπουν, άλλα έργα του ίδιου mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch), bestsellers ίδιου εκδότη, top manga backfill → 10/10. ΣΗΜΕΙΩΣΗ: ο κανόνας same-hierarchy exclusion ΔΕΝ ισχύει εδώ — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing (PS5/PS4/Xbox/Switch/PC/Racing), hard platform-lock, no-second-gamepad, orphan wheel add-ons μόνο σε τιμόνι → 10/10.
+        🟢 Engine v28.56.1 — K-Pop CDs (Music sheet, Hierarchy='K-POP'): fan-collection engine. Όλα τα 10 slots είναι K-Pop CD. Υβριδικό: σχέση καλλιτέχνη/group (gate) × sales (κατάταξη) × version-collector λογική. Slots 1-2: ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ του ίδιου άλμπουμ (Deadline Black/Gray/Silver — "collect them all"). Slots 3-5: άλλα άλμπουμ του ΙΔΙΟΥ group (dedup ανά άλμπουμ, κρατάμε την best-selling έκδοση). Slots 6-7: ECOSYSTEM — solo μέλη ↔ group ↔ sub-units μέσω της στήλης Καλλιτέχνης.1 (RM;BTS, Jin;BTS, LISA;BLACKPINK). Slots 8-10: discovery — top K-Pop άλλων groups με boost ίδιας εταιρείας (HYBE/JYP/YG/SM). Top K-Pop backfill → 10/10. ΣΗΜΕΙΩΣΗ: same-hierarchy exclusion ΔΕΝ ισχύει — K-Pop→K-Pop ΕΙΝΑΙ η πρόταση. | v28.56.1 Manga fix: box-set/omnibus chaining ανά ΑΡΙΘΜΟ ΣΥΛΛΟΓΗΣ (Box Set 1→2→3, Omnibus 1→2,3,4 — όχι μεμονωμένοι τόμοι· parse collection number ακόμα κι με υπότιτλο "Box Set 1: East Blue"→1, αγνοεί το εσωτερικό "(Vol. 4-6)") + Final_Score fix (διόρθωση του KeyError στο "Final Recommendations"). | v28.55 — Manga (Κόμικς): series-continuation — Σειρά βιβλίου × τόμο × mangaka × εκδότη × sales, slots 1-5 επόμενοι τόμοι (Berserk Vol.7 → 8-12), μετά τόμοι που λείπουν / ίδιος mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch) / bestsellers εκδότη / top manga → 10/10. same-hierarchy exclusion ΔΕΝ ισχύει — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing, hard platform-lock → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -13027,6 +13027,44 @@ def _manga_parse_vol(title):
 def _manga_is_deluxe(title):
     return 1 if _MANGA_DELUXE_RE.search(str(title)) else 0
 
+def _manga_edition_family(title):
+    """Classify a manga edition into a format family so we can keep a trigger
+    on the SAME format (box-set → box-set, omnibus → omnibus, single → single).
+    A reader buying a Box Set wants the next Box Set, not a 3-in-1 single."""
+    t = str(title).lower()
+    if re.search(r'box\s*set', t):
+        return 'boxset'
+    if re.search(r'\b(?:3-in-1|2-in-1|omnibus)\b', t):
+        return 'omnibus'
+    if re.search(r'\b(?:deluxe|colossal|hardcover|complete)\b', t):
+        return 'deluxe'
+    return 'standard'
+
+# Collection sequence number for COLLECTED formats (box sets / omnibuses).
+# This orders the COLLECTION line — distinct from the inner chapter-volume.
+# "Attack on Titan Omnibus 2 (Vol. 4-6)" → 2 (NOT 4); "Naruto Box Set 1: East
+# Blue…" → 1. Read explicitly because the generic volume parser would grab the
+# inner "(Vol. 4-6)" and mis-order the omnibus line.
+_MANGA_COLNUM_RE = re.compile(r'(?:box\s*set|omnibus|collection)\s*#?\s*(\d{1,3})', re.I)
+def _manga_collection_num(title):
+    t = str(title)
+    m = _MANGA_COLNUM_RE.search(t)
+    if m:
+        try:
+            return int(m.group(1))
+        except (TypeError, ValueError):
+            return None
+    # "Season N … Box Set" form — the season number is the sequence even though
+    # it precedes the keyword.
+    if re.search(r'box\s*set|omnibus', t, re.I):
+        m2 = re.search(r'season\s*(\d{1,3})', t, re.I)
+        if m2:
+            try:
+                return int(m2.group(1))
+            except (TypeError, ValueError):
+                return None
+    return None
+
 def run_manga_engine(trigger, df_manga, df_history=None):
     """Manga series-continuation engine. df_history kept for signature parity."""
     cfg = MANGA_CONFIG
@@ -13062,6 +13100,8 @@ def run_manga_engine(trigger, df_manga, df_history=None):
     pool['_pub']    = pool[pub_col].apply(_manga_clean) if pub_col else ''
     pool['_vol']    = pool['Title'].apply(_manga_parse_vol)
     pool['_dlx']    = pool['Title'].apply(_manga_is_deluxe)
+    pool['_fam']    = pool['Title'].apply(_manga_edition_family)
+    pool['_cnum']   = pool['Title'].apply(_manga_collection_num)
     pool['_title_n']= pool['Title'].apply(_manga_nfd)
     if 'Sum of Sales' in pool.columns:
         pool['_sales'] = pd.to_numeric(pool['Sum of Sales'], errors='coerce').fillna(0.0)
@@ -13075,8 +13115,10 @@ def run_manga_engine(trigger, df_manga, df_history=None):
     t_pub    = _manga_clean(trigger.get(PUB, ''))
     t_vol    = _manga_parse_vol(trigger.get('Title'))
     t_dlx    = _manga_is_deluxe(trigger.get('Title'))
+    t_fam    = _manga_edition_family(trigger.get('Title'))
+    t_cnum   = _manga_collection_num(trigger.get('Title'))
     diag.append(("trigger", 1,
-                 f"ser={t_ser_n[:18]} vol={t_vol} dlx={t_dlx} "
+                 f"ser={t_ser_n[:18]} vol={t_vol} fam={t_fam} cnum={t_cnum} "
                  f"auth={t_auth_n[:16]} pub={t_pub[:16]}"))
 
     # Candidate pool: drop the trigger itself + de-dupe identical SKUs.
@@ -13108,28 +13150,65 @@ def run_manga_engine(trigger, df_manga, df_history=None):
         diag.append((role, n, note))
 
     def dedup_by_vol(rows):
-        # One row per volume number: prefer the trigger's edition family
-        # (regular vs deluxe), then highest sales.
+        # One row per volume number: prefer the trigger's edition FAMILY
+        # (box-set vs omnibus vs deluxe vs single), then highest sales.
         rows = rows.copy()
-        rows['_edm'] = (rows['_dlx'] == t_dlx).astype(int)
+        rows['_edm'] = (rows['_fam'] == t_fam).astype(int)
         rows = rows.sort_values(['_vol', '_edm', '_sales'],
                                 ascending=[True, False, False])
         return rows.drop_duplicates(subset=['_vol'], keep='first')
 
-    # 1) SERIES_NEXT — same series, next volumes, reading order.
-    if t_ser_n and t_vol is not None:
-        nxt = p[(p['_ser_n'] == t_ser_n) & (p['_vol'].notna()) & (p['_vol'] > t_vol)]
-        nxt = dedup_by_vol(nxt).sort_values('_vol')
-        take(nxt, 'SERIES_NEXT', cfg["n_series_next"], note='same series, next volumes')
-
-    # 2) SERIES_OTHER — remaining volumes of the same series (missed earlier,
-    #    omnibuses, spinoffs). Volume-ordered, then sales for the un-numbered.
+    # 1) + 2) SERIES continuation. The ordering key differs by format:
+    #   • COLLECTED formats (box sets / omnibuses) chain by their COLLECTION
+    #     number (Box Set 1→2→3, Omnibus 1→2→3) and stay on the same line —
+    #     a Box Set buyer wants the next Box Set, not a single Vol. 2.
+    #   • SINGLE / deluxe volumes chain by chapter-volume, one edition per
+    #     volume (preferring the trigger's edition family).
+    COLLECTED_FAMS = {'boxset', 'omnibus'}
     if t_ser_n:
-        oth = p[(p['_ser_n'] == t_ser_n) & (~p['Material'].isin(used))].copy()
-        with_vol = dedup_by_vol(oth[oth['_vol'].notna()]).sort_values('_vol')
-        no_vol = oth[oth['_vol'].isna()].sort_values('_sales', ascending=False)
-        take(pd.concat([with_vol, no_vol]), 'SERIES_OTHER',
-             cfg["cap_series_other"], note='same series, other volumes')
+        same_series = p[p['_ser_n'] == t_ser_n].copy()
+        # Unified sequence: collection number when present, else chapter-volume.
+        same_series['_seq'] = same_series['_cnum']
+        same_series.loc[same_series['_seq'].isna(), '_seq'] = \
+            same_series.loc[same_series['_seq'].isna(), '_vol']
+
+        if t_fam in COLLECTED_FAMS:
+            t_seq = t_cnum if t_cnum is not None else t_vol
+            fam = same_series[same_series['_fam'] == t_fam].copy()
+            # SERIES_NEXT: next items on the SAME collected line, by sequence.
+            if t_seq is not None:
+                nxt = fam[fam['_seq'].notna() & (fam['_seq'] > t_seq)]
+            else:
+                nxt = fam[fam['_seq'].notna()]
+            nxt = (nxt.sort_values(['_seq', '_sales'], ascending=[True, False])
+                      .drop_duplicates('_seq'))
+            take(nxt, 'SERIES_NEXT', cfg["n_series_next"],
+                 note=f'same series, next {t_fam}')
+            # SERIES_OTHER: remaining items on the same collected line first
+            # (earlier sets the reader may have skipped), then the rest of the
+            # series in any format as a deeper fallback.
+            rem_fam = (fam[~fam['Material'].isin(used)]
+                       .sort_values(['_seq', '_sales'], ascending=[True, False])
+                       .drop_duplicates('_seq'))
+            rest = same_series[(same_series['_fam'] != t_fam)
+                               & (~same_series['Material'].isin(used))].copy()
+            rest['_vs'] = rest['_vol'].fillna(9999)
+            rest = rest.sort_values(['_vs', '_sales'], ascending=[True, False])
+            take(pd.concat([rem_fam, rest]), 'SERIES_OTHER',
+                 cfg["cap_series_other"], note='same series, other editions/volumes')
+        else:
+            # SINGLE / deluxe trigger — chapter-volume ladder, one edition each.
+            if t_vol is not None:
+                nxt = same_series[(same_series['_vol'].notna())
+                                  & (same_series['_vol'] > t_vol)]
+                nxt = dedup_by_vol(nxt).sort_values('_vol')
+                take(nxt, 'SERIES_NEXT', cfg["n_series_next"],
+                     note='same series, next volumes')
+            oth = same_series[~same_series['Material'].isin(used)].copy()
+            with_vol = dedup_by_vol(oth[oth['_vol'].notna()]).sort_values('_vol')
+            no_vol = oth[oth['_vol'].isna()].sort_values('_sales', ascending=False)
+            take(pd.concat([with_vol, no_vol]), 'SERIES_OTHER',
+                 cfg["cap_series_other"], note='same series, other volumes')
 
     # 3) SAME_AUTHOR — other series by the same mangaka.
     if t_auth_n:
@@ -13151,10 +13230,15 @@ def run_manga_engine(trigger, df_manga, df_history=None):
 
     # Assemble top 10.
     rows_out = []
+    n_picks = len(picks[:10])
     for i, (r, role) in enumerate(picks[:10], 1):
         rr = r.copy()
         rr['Assigned_Slot'] = i
         rr['Slot_Role'] = role
+        # Final_Score: monotonic rank (slot 1 highest) so the shared "Final
+        # Recommendations" table renders. Real ordering is the role tier +
+        # within-tier sales used above.
+        rr['Final_Score'] = float((n_picks - i + 1) * 1000 + min(r['_sales'], 999))
         rows_out.append(rr)
         slot_notes.setdefault(i, []).append(
             f"{role}: {str(r['Title'])[:54]} | "
