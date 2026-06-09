@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.56.4-2026-06-09"
+APP_BUILD = "parquet-v28.57.0-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.56.4 — K-Pop CDs & Manga cross-sell engines.
+        🟢 Engine v28.57.0 — Ψυγεία Δίπορτα (two-door fridge) cross-sell engine.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -4282,6 +4282,123 @@ FRIDGE_S_WIFI_MATCH        =     50_000  # Trigger has Wi-Fi → boost Wi-Fi can
 FRIDGE_S_UNIVERSAL_CARE    =    400_000  # BOSCH cleaning supplies / SCANPART filter — work for any fridge
 FRIDGE_S_WRONG_SERIES_PEN  =   -500_000  # KSZ Vario panel offered to a non-Vario fridge — physical mismatch
 FRIDGE_S_SALES_FACTOR      =        0.3  # Sales tiebreaker (fridges have low per-SKU sales)
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 ΨΥΓΕΙΑ ΔΙΠΟΡΤΑ CONFIGURATION (Two-door fridge-freezers, v28.57)
+# ═════════════════════════════════════════════════════════════
+# Trigger detection: products in the Home-file "Sheet1" with Hierarchy =
+# "Ψυγεία Δίπορτα" (Τύπος συσκευής = 'Δίπορτο'). 91 unique SKUs (raw sheet
+# triplicates each across price/stock variants — deduped at load time).
+#
+# This is a SEPARATE hierarchy from Ψυγειοκαταψύκτες (the existing Fridges
+# engine): δίπορτα are the classic top-fridge / bottom-freezer combos, and
+# the dataset is brand-led by SMEG (29 SKUs, incl. the iconic FAB retro line
+# in Πράσινο / Κόκκινο / Μπλε / Ροζ / Πορτοκαλί), then HISENSE, LG, WHIRLPOOL,
+# MIDEA, SAMSUNG, TESLA, OMNYS…
+#
+# RECOMMENDATION DEPTH — HYBRID (sales × brand-family × color × price-tier),
+# the same proven family as the Refrigerators engine, NOT pure sales:
+#   • Specs are RICH (Κατασκευαστής 100%, Χρώμα 100%, Χωρητικότητα 100%,
+#     LIST PRICE 100%) so pure-sales would bleed cross-brand/cross-color
+#     (a black HISENSE δίπορτο must not lead with a pink SMEG kettle).
+#   • Δίπορτα have NO brand-locked color-swap panels (unlike SAMSUNG
+#     BESPOKE), so the hard panel-series slot of the Fridges engine is
+#     dropped here. The distinctive lead signal instead is COLOR-COORDINATED
+#     SMEG small kitchen (SDA Βραστήρες / Φρυγανιέρες / Τοστιέρες — brand
+#     100%, color 99%): a Ροζ SMEG FAB fridge surfaces the matching Ροζ SMEG
+#     kettle + toaster. That is the headline cross-sell for this category.
+#   • The rest mirrors the fridge kitchen package (Cooking dominates the
+#     History basket: 41 co-purchases vs Washing 14), so cooking companions
+#     (oven / hob / hood / microwave / electric cooker / dishwasher / washer
+#     / dryer) are color+brand+price scored exactly like the Fridges engine.
+#
+# Reuses the Fridges helpers/constants wholesale (they are generic kitchen
+# scorers): _fridge_brand_family, _fridge_color_group, _fridge_price_tier,
+# _fridge_parse_capacity, _fridge_parse_brand_from_title, the FRIDGE_S_*
+# weights, and the _fridge_build_* pool builders.
+
+DIPORTO_TRIGGER_HIERARCHIES = {
+    "Ψυγεία Δίπορτα", "ΨΥΓΕΙΑ ΔΙΠΟΡΤΑ", "Ψυγείο Δίπορτο",
+}
+
+# Competitor fridges to drop from the MDA cross-sell pool (never recommend
+# another fridge to a fridge buyer — cannibalistic). Covers both fridge
+# hierarchies + any single-door / side-by-side labels.
+DIPORTO_COMPETITOR_HIERS = {
+    'ΨΥΓΕΙΑ ΔΙΠΟΡΤΑ', 'ΨΥΓΕΙΟΚΑΤΑΨΥΚΤΕΣ', 'ΨΥΓΕΙΟΚΑΤΑΨΥΚΤΗΣ',
+    'ΨΥΓΕΙΑ', 'ΚΑΤΑΨΥΚΤΕΣ', 'SIDE BY SIDE', 'ΑΞΕΣΟΥΑΡ ΨΥΓΕΙΩΝ',
+}
+
+# 🧪 Optional demo filter — empty set = show all 91 δίπορτα.
+#   • SMEG FAB retro (color-coordination hero)
+#   • mainstream Inox / Λευκό mass brands
+#   • budget black
+DIPORTO_TEST_SKUS = set()
+
+# Slot layout — 10 slots.
+#   1  small-kitchen color match (SMEG FAB → matching kettle/toaster)  [SDA]
+#   2  fridge care/cleaning/filter (universal)                          [MDA]
+#   3  built-in oven (color+brand)                                      [MDA]
+#   4  hob (brand+price; color barely varies)                          [MDA]
+#   5  cooker hood (color+brand)                                        [MDA]
+#   6  dishwasher (title-parsed brand)                                  [MDA]
+#   7  microwave (color+brand)                                          [MDA]
+#   8  washing machine (title-parsed brand)                            [MDA]
+#   9  dryer (title-parsed brand)                                       [MDA]
+#  10  electric cooker (color+brand) — alt kitchen path                 [MDA]
+# Round-1 caps sum to 11 (slot 1 small-kitchen takes up to 2) so empty
+# pools (e.g. a non-SMEG trigger has no color-matched small kitchen) are
+# transparently backfilled by the round-robin from the remaining pools.
+#
+# (priority, role_label, [hierarchies], logic_key, source, max_in_round_1, max_total)
+DIPORTO_PRIORITY = [
+    (1,  'Μικρή Συσκευή Κουζίνας',
+        ['Βραστήρες', 'Φρυγανιέρες', 'Τοστιέρες'],
+        'FRIDGE_KITCHEN_COLORED',  'SDA', 2, 2),  # SMEG retro color coordination
+    (2,  'Φροντίδα Ψυγείου',
+        ['Αξεσουάρ Ψυγείων'],
+        'FRIDGE_CARE_UNIVERSAL',   'MDA', 1, 2),  # cleaning + filter, universal
+    (3,  'Φούρνος Εντοιχιζόμενος',
+        ['Φούρνοι Άνω Πάγκου'],
+        'FRIDGE_KITCHEN_COLORED',  'MDA', 1, 1),
+    (4,  'Εστία',
+        ['Εστίες Επαγωγικές', 'Εστίες Κεραμικές'],
+        'FRIDGE_KITCHEN_BASIC',    'MDA', 1, 1),
+    (5,  'Απορροφητήρας',
+        ['Απορροφητήρες Καμινάδες - τζάκια', 'Απορροφητήρες Συρόμενοι'],
+        'FRIDGE_KITCHEN_COLORED',  'MDA', 1, 1),
+    (6,  'Πλυντήριο Πιάτων',
+        ['Πλυντήρια Πιάτων', 'Εντοιχιζόμενα Πλυντήρια Πιάτων'],
+        'FRIDGE_KITCHEN_PARSED',   'MDA', 1, 1),
+    (7,  'Φούρνος Μικροκυμάτων',
+        ['Φούρνοι Μικροκυμάτων'],
+        'FRIDGE_KITCHEN_COLORED',  'MDA', 1, 1),
+    (8,  'Πλυντήριο Ρούχων',
+        ['Πλυντήρια Ρούχων'],
+        'FRIDGE_KITCHEN_PARSED',   'MDA', 1, 1),
+    (9,  'Στεγνωτήριο',
+        ['Στεγνωτήρια'],
+        'FRIDGE_KITCHEN_PARSED',   'MDA', 1, 1),
+    (10, 'Κουζίνα Ηλεκτρική',
+        ['Κουζίνες Ηλεκτρικές'],
+        'FRIDGE_KITCHEN_COLORED',  'MDA', 1, 1),
+]
+
+DIPORTO_SLOT_TARGET = 10
+
+DIPORTO_MARKETING_COPY = {
+    "Μικρή Συσκευή Κουζίνας": "Ασορτί στυλ — μικρές συσκευές στο ίδιο χρώμα με το ψυγείο σου.",
+    "Φροντίδα Ψυγείου":       "Καθαρό ψυγείο, καθαρές γεύσεις — επαγγελματική φροντίδα.",
+    "Φούρνος Εντοιχιζόμενος": "Ολοκλήρωσε την κουζίνα σου με σύγχρονο εντοιχιζόμενο φούρνο.",
+    "Εστία":                  "Κεραμική ή επαγωγική — η τέλεια εστία για την κουζίνα σου.",
+    "Απορροφητήρας":          "Καθαρός αέρας, χωρίς οσμές — η κουζίνα σου, καθαρή.",
+    "Πλυντήριο Πιάτων":       "Λιγότερος χρόνος στο νεροχύτη — περισσότερος χρόνος για σένα.",
+    "Φούρνος Μικροκυμάτων":   "Γρήγορη ζέσταμα και ξεπάγωμα — απαραίτητο στην κουζίνα.",
+    "Πλυντήριο Ρούχων":       "Αναβάθμισε ολόκληρο το σπίτι — ίδια ποιότητα κατασκευής.",
+    "Στεγνωτήριο":            "Στέγνωμα στο σπίτι — όλη τη χρονιά, χωρίς αναμονή.",
+    "Κουζίνα Ηλεκτρική":      "Όλα-σε-ένα: φούρνος + εστία σε ένα ενιαίο σχέδιο.",
+}
 
 
 # ═════════════════════════════════════════════════════════════
@@ -8666,7 +8783,19 @@ def load_all_data():
     # Higher series coverage (25% vs 8.5%) — Penguin/Oxford/Travel classics dominate.
     dint_books = _load('International Books')
     if dint_books.empty:
-        dint_books = _load('Sheet1')   # fallback: workbook ships with default sheet name
+        # v28.57 — COLLISION FIX: the IntBooks workbook ships International
+        # Books as a sheet literally named "Sheet1". The Home workbook now
+        # ALSO carries a "Sheet1" (the Ψυγεία Δίπορτα data, added 2026-06),
+        # and Home precedes IntBooks in EXCEL_FILES, so the generic
+        # first-file-wins _load('Sheet1') would hand back the fridge frame.
+        # Pin International Books to the IntBooks workbook by filename instead.
+        _ib_ef = next((ef for p, ef in opened_efs
+                       if 'intbooks' in p.lower().replace(' ', '')), None)
+        if _ib_ef is not None and 'Sheet1' in _ib_ef.sheet_names:
+            dint_books = _ib_ef.read('Sheet1')
+            dint_books.columns = dint_books.columns.str.strip()
+        else:
+            dint_books = _load('Sheet1')   # last-resort fallback
 
     # ── v28.55: MANGA sheet from "Recommendations GitHub IntBooks.xlsx".
     # 7,111 rows, Level 2='Comics', Hierarchy='MANGA'. Sheet is named "Sheet2"
@@ -8679,6 +8808,65 @@ def load_all_data():
     dmanga = _load('MANGA')
     if dmanga.empty:
         dmanga = _load('Sheet2')   # fallback: workbook ships with default sheet name
+
+    # ── v28.57: ΨΥΓΕΙΑ ΔΙΠΟΡΤΑ (two-door fridge-freezers) sheet from
+    # "Recommendations GitHub Home.xlsx". 273 rows / 91 unique SKUs (each SKU
+    # is TRIPLICATED across sales-channel/stock variants that differ only in
+    # LIST PRICE + AVAILABILITY). Lives in a sheet literally named "Sheet1",
+    # which COLLIDES with the IntBooks International-Books "Sheet1". Resolve
+    # by file (the Home workbook) — never by the bare _load('Sheet1') name —
+    # then dedup to 91 SKUs preferring the in-stock / lowest-price row.
+    # Spec-rich: Κατασκευαστής/Χρώμα/Τύπος συσκευής/Χωρητικότητα/LIST PRICE
+    # all ~100%. Hierarchy='Ψυγεία Δίπορτα', Level 2='Cooling'. SMEG FAB retro
+    # line (87 rows) drives the small-kitchen color-coordination cross-sell.
+    ddip = pd.DataFrame()
+    _home_ef = next((ef for p, ef in opened_efs
+                     if 'home' in p.lower().replace(' ', '')), None)
+    if _home_ef is not None and 'Sheet1' in _home_ef.sheet_names:
+        _cand = _home_ef.read('Sheet1')
+        _cand.columns = _cand.columns.str.strip()
+        # Safety: only accept it if it really is the Δίπορτα frame.
+        if 'Hierarchy' in _cand.columns and \
+           _cand['Hierarchy'].fillna('').astype(str).str.contains('Ψυγεία Δίπορτα').any():
+            ddip = _cand
+    if ddip.empty:
+        # Content-probe fallback across every workbook (in case the sheet is
+        # renamed): find any sheet whose Hierarchy == 'Ψυγεία Δίπορτα'.
+        for _p, _ef in opened_efs:
+            for _sh in _ef.sheet_names:
+                try:
+                    head = _ef.read(_sh, nrows=0)
+                except Exception:
+                    continue
+                if 'Hierarchy' not in [str(c).strip() for c in head.columns]:
+                    continue
+                try:
+                    probe = _ef.read(_sh, columns=['Hierarchy'])
+                except Exception:
+                    continue
+                if probe['Hierarchy'].fillna('').astype(str).str.contains('Ψυγεία Δίπορτα').any():
+                    ddip = _ef.read(_sh)
+                    ddip.columns = ddip.columns.str.strip()
+                    break
+            if not ddip.empty:
+                break
+    # Dedup the triplicated rows → one row per Material, preferring in-stock
+    # then cheapest list price (so the carousel shows a buyable variant).
+    if not ddip.empty and 'Material' in ddip.columns:
+        _avail_rank = {'Άμεσα Διαθέσιμο': 0, 'Διαθέσιμο με παραγγελία': 1,
+                       'Κατόπιν Παραγγελίας': 2, 'προσωρινά εξαντλημένο': 3,
+                       'Εξαντλήθηκε': 4}
+        ddip = ddip.copy()
+        ddip['_av_rank'] = ddip.get('AVAILABILITY', '').map(
+            lambda x: _avail_rank.get(str(x).strip(), 9)) if 'AVAILABILITY' in ddip.columns else 9
+        ddip['_pr'] = ddip.get('LIST PRICE', 0)
+        ddip['_pr'] = pd.to_numeric(ddip['_pr'], errors='coerce').fillna(1e12)
+        # in-stock variants priced at 0 are placeholders — push them last
+        ddip.loc[ddip['_pr'] <= 0, '_pr'] = 1e12
+        ddip = (ddip.sort_values(['_av_rank', '_pr'])
+                    .drop_duplicates(subset=['Material'], keep='first')
+                    .drop(columns=['_av_rank', '_pr'])
+                    .reset_index(drop=True))
     
     # ── v28.30: Greek School Books from
     # "Recommendations GitHub Books.xlsx". 3,814 rows, Level 2='Greek School Books'.
@@ -8765,11 +8953,11 @@ def load_all_data():
     if not dint_school.empty and CC not in dint_school.columns:
         dint_school[CC] = ''
     
-    return dp, dm, dh, ds, db, dl, dv, dper, dstat, dair, dfloor, dgaming, dsda, dmda, dspare, ddt, dgr_books, dint_books, dgr_school, dpriv, dint_school, dmanga, available_sheets
+    return dp, dm, dh, ds, db, dl, dv, dper, dstat, dair, dfloor, dgaming, dsda, dmda, dspare, ddt, dgr_books, dint_books, dgr_school, dpriv, dint_school, dmanga, ddip, available_sheets
 
 try:
 
-    df_products, df_music, df_history, df_slots, df_books, df_laptops, df_vacuums, df_peripherals, df_stationery, df_air, df_floor, df_gaming, df_sda, df_mda, df_spare, df_desktops, df_greek_books, df_int_books, df_school_books, df_private_school, df_int_school, df_manga, sheets_loaded = load_all_data()
+    df_products, df_music, df_history, df_slots, df_books, df_laptops, df_vacuums, df_peripherals, df_stationery, df_air, df_floor, df_gaming, df_sda, df_mda, df_spare, df_desktops, df_greek_books, df_int_books, df_school_books, df_private_school, df_int_school, df_manga, df_diporto, sheets_loaded = load_all_data()
     compat_cols_found = [c for c in COMPAT_COLS if c in df_products.columns]
 except Exception as e:
     st.error(f"🚨 Error loading data: {e}")
@@ -9004,6 +9192,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='2' width='16' height='20' rx='2'/%3E%3Ccircle cx='12' cy='13' r='5'/%3E%3Cpath d='M9 13a3 3 0 0 1 6 0'/%3E%3Cline x1='8' y1='5' x2='8.01' y2='5'/%3E%3Cline x1='15' y1='5' x2='17' y2='5'/%3E%3C/svg%3E"},
         {"key": "Fridges", "label": "Ψυγειο-\nκαταψύκτες",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='2' width='14' height='20' rx='2'/%3E%3Cline x1='5' y1='10' x2='19' y2='10'/%3E%3Cline x1='8' y1='6' x2='8.01' y2='6'/%3E%3Cline x1='8' y1='14' x2='8.01' y2='14'/%3E%3C/svg%3E"},
+        {"key": "Diporto", "label": "Ψυγεία\nΔίπορτα",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='2' width='16' height='20' rx='2'/%3E%3Cline x1='12' y1='2' x2='12' y2='22'/%3E%3Cline x1='9' y1='6' x2='9' y2='9'/%3E%3Cline x1='15' y1='6' x2='15' y2='9'/%3E%3C/svg%3E"},
         {"key": "Cookers", "label": "Κουζίνες",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='8' width='16' height='13' rx='2'/%3E%3Cline x1='4' y1='12' x2='20' y2='12'/%3E%3Crect x='8' y='15' width='8' height='4' rx='0.5'/%3E%3Ccircle cx='8' cy='5' r='1.2'/%3E%3Ccircle cx='12' cy='5' r='1.2'/%3E%3Ccircle cx='16' cy='5' r='1.2'/%3E%3C/svg%3E"},
         {"key": "Dishwashers", "label": "Εντοιχιζόμενα\nΠλ. Πιάτων",
@@ -10096,6 +10286,28 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ψυγειοκαταψύκτη</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", fridges['Title'].unique(), label_visibility="collapsed", key="fridge_sel")
                 trigger = fridges[fridges['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "Diporto":
+        # Trigger pool: Ψυγεία Δίπορτα — lives in the Home-file "Sheet1"
+        # (loaded + deduped to 91 SKUs as df_diporto), NOT in the MDA sheet.
+        if df_diporto is None or df_diporto.empty:
+            st.sidebar.warning("Δεν βρέθηκαν Ψυγεία Δίπορτα (Home/Sheet1).")
+        else:
+            hier_upper = df_diporto['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            trigger_hiers_upper = {h.upper().strip() for h in DIPORTO_TRIGGER_HIERARCHIES}
+            diporta = df_diporto[hier_upper.isin(trigger_hiers_upper)].copy()
+
+            # 🧪 Optional test-list filter (leave DIPORTO_TEST_SKUS empty to show all 91)
+            if DIPORTO_TEST_SKUS:
+                mat_clean = diporta['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                diporta = diporta[mat_clean.isin(DIPORTO_TEST_SKUS)]
+
+            if diporta.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Ψυγεία Δίπορτα στο sheet.")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ψυγείο Δίπορτο</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", diporta['Title'].unique(), label_visibility="collapsed", key="diporto_sel")
+                trigger = diporta[diporta['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster == "Cookers":
         # Trigger pool: Κουζίνες Αερίου + Κουζίνες Ηλεκτρικές from the MDA
@@ -24532,6 +24744,187 @@ def run_fridge_engine(trigger, df_mda, df_history):
     return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
 
 
+# ═══════════════════════════════════════════════════════════════
+# 🟢 ΨΥΓΕΙΑ ΔΙΠΟΡΤΑ ENGINE — two-door fridge-freezers (v28.57)
+# ═══════════════════════════════════════════════════════════════
+# Reuses the Fridges pool builders (generic kitchen scorers). Two source
+# frames: cross-sell cooking package from MDA (competitor fridges dropped)
+# and the SMEG-retro color-coordinated small kitchen from SDA.
+
+def run_diporto_engine(trigger, df_mda, df_sda, df_history):
+    """Build up to 10 cross-sell slots for a Ψυγεία Δίπορτα (δίπορτο) trigger.
+
+    Headline signal: color-coordinated small kitchen (SMEG FAB retro fridge →
+    matching kettle/toaster in the SAME Χρώμα). Then the standard kitchen
+    package (oven / hob / hood / dishwasher / microwave / washer / dryer /
+    electric cooker), color+brand+price scored. The MDA pool hard-drops every
+    competing fridge (no fridge→fridge recommendations)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm     = trigger['Material']
+    tbrand = str(trigger.get('Κατασκευαστής', '') or '').upper().strip()
+    tcolor = str(trigger.get('Χρώμα', '') or '').strip()
+    tprice = parse_euro_price(trigger.get('LIST PRICE', 0))
+    ttier  = _fridge_price_tier(tprice)
+    tfam   = _fridge_brand_family(tbrand)
+    tcolor_grp = _fridge_color_group(tcolor)
+    tcap = _fridge_parse_capacity(trigger.get('Συνολική καθαρή χωρητικότητα', '')
+                                   or trigger.get('Χωρητικότητα', ''))
+    twifi = ('Wi-Fi' in str(trigger.get('Συνδεσιμότητα', '') or '')) or \
+            ('WiFi'  in str(trigger.get('Συνδεσιμότητα', '') or ''))
+    tspecs = {'wifi': twifi, 'capacity_lt': tcap}
+
+    diag.append(("0. Trigger",
+                 f"{tbrand} €{tprice:.0f}",
+                 f"color={tcolor} | color_group={tcolor_grp} | family={tfam} | "
+                 f"cap={tcap:.0f}Lt | wifi={twifi} | price_tier={ttier}"))
+
+    if (df_mda is None or df_mda.empty):
+        diag.append(("ERROR", 0, "MDA sheet is empty — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    # ── MDA cross-sell frame: drop the trigger + every competing fridge.
+    c_mda = df_mda[df_mda['Material'] != tm].copy()
+    hier_upper = c_mda['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+    b4 = len(c_mda)
+    c_mda = c_mda[~hier_upper.isin(DIPORTO_COMPETITOR_HIERS)]
+    diag.append(("1. Excl competitors", len(c_mda),
+                 f"Removed {b4 - len(c_mda)} fridge/accessory rows from MDA cross-sell"))
+    if 'Sum of Sales' in c_mda.columns:
+        c_mda['Sales_Tiebreaker'] = pd.to_numeric(c_mda['Sum of Sales'], errors='coerce').fillna(0)
+    else:
+        c_mda['Sales_Tiebreaker'] = 0
+
+    # ── SDA small-kitchen frame (Βραστήρες / Φρυγανιέρες / Τοστιέρες).
+    c_sda = pd.DataFrame()
+    if df_sda is not None and not df_sda.empty:
+        c_sda = df_sda[df_sda['Material'] != tm].copy()
+        if 'Sum of Sales' in c_sda.columns:
+            c_sda['Sales_Tiebreaker'] = pd.to_numeric(c_sda['Sum of Sales'], errors='coerce').fillna(0)
+        else:
+            c_sda['Sales_Tiebreaker'] = 0
+    else:
+        diag.append(("SDA", 0, "SDA sheet empty — small-kitchen slot will backfill from MDA"))
+
+    # ── Build a sorted pool per priority entry
+    pools = {}
+    for rank, role_label, hiers, logic_key, source, max_r1, max_total in DIPORTO_PRIORITY:
+        notes = [f"=== Priority {rank}: {role_label} ({logic_key}, {source}) "
+                 f"| max_round_1={max_r1} | max_total={max_total if max_total else '∞'} ==="]
+
+        frame = c_sda if source == 'SDA' else c_mda
+        if frame is None or frame.empty:
+            notes.append(f"  ⚠ Source frame {source} unavailable — slot backfills")
+            pools[rank] = (role_label, pd.DataFrame(), logic_key, max_r1, max_total, notes)
+            continue
+
+        hier_upper_set = {h.upper().strip() for h in hiers}
+        base_pool = frame[frame['Hierarchy'].fillna('').astype(str).str.upper().str.strip().isin(hier_upper_set)].copy()
+        notes.append(f"  Base pool size: {len(base_pool)} (hierarchies={hiers})")
+
+        if base_pool.empty:
+            notes.append(f"  ⚠ Hierarchy not present in {source} — slot backfills from other pools")
+            pools[rank] = (role_label, pd.DataFrame(), logic_key, max_r1, max_total, notes)
+            continue
+
+        if logic_key == 'FRIDGE_CARE_UNIVERSAL':
+            scored = _fridge_build_care_pool(base_pool, tbrand, notes)
+        elif logic_key == 'FRIDGE_KITCHEN_COLORED':
+            scored = _fridge_build_kitchen_pool_colored(
+                base_pool, tbrand, tfam, tcolor, tcolor_grp, ttier, tspecs, notes)
+        elif logic_key == 'FRIDGE_KITCHEN_BASIC':
+            scored = _fridge_build_kitchen_pool_basic(base_pool, tbrand, tfam, ttier, notes)
+        elif logic_key == 'FRIDGE_KITCHEN_PARSED':
+            scored = _fridge_build_kitchen_pool_parsed_brand(base_pool, tbrand, tfam, ttier, notes)
+        else:
+            scored = base_pool.copy()
+            scored['Final_Score'] = scored['Sales_Tiebreaker']
+            notes.append(f"  ⚠ Unknown logic key '{logic_key}' — falling back to pure sales")
+
+        pools[rank] = (role_label, scored, logic_key, max_r1, max_total, notes)
+        diag.append((f"Pool {rank} ({role_label})",
+                     len(scored) if scored is not None else 0, f"{logic_key}/{source}"))
+
+    # ── Round-robin fill (identical mechanics to the Fridges engine).
+    used_materials = {tm}
+    pool_cursors = {rank: 0 for rank in pools}
+    pool_taken   = {rank: 0 for rank in pools}
+    slot_num = 0
+    round_idx = 0
+
+    while slot_num < DIPORTO_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, logic_key, max_r1, max_total, notes) in pools.items():
+            if slot_num >= DIPORTO_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and pool_taken[rank] >= max_total:
+                continue
+
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - pool_taken[rank])
+
+            cursor = pool_cursors[rank]
+            taken_this_pass = 0
+            while taken_this_pass < take_n and cursor < len(scored) \
+                  and slot_num < DIPORTO_SLOT_TARGET:
+                row = scored.iloc[cursor]
+                cursor += 1
+                if row['Material'] in used_materials:
+                    continue
+                if float(row.get('Final_Score', 0)) < 0:
+                    continue
+                slot_num += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_num
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = DIPORTO_MARKETING_COPY.get(role_label, "Ιδανική επιλογή!")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used_materials.add(row['Material'])
+                taken_this_pass += 1
+                pool_taken[rank] += 1
+                progress = True
+
+                title_preview = str(row.get('Title', ''))[:70]
+                score_val = float(row.get('Final_Score', 0))
+                if slot_num not in slot_notes:
+                    slot_notes[slot_num] = []
+                slot_notes[slot_num].append(
+                    f"Round {round_idx} | Pool '{role_label}' | "
+                    f"Score: {score_val:,.0f} | {title_preview}")
+
+            pool_cursors[rank] = cursor
+
+        if not progress:
+            diag.append(("Loop", round_idx, "All pools exhausted or capped — stopping"))
+            break
+
+    # ── Pool diagnostics under slot 0
+    pool_diag_notes = []
+    for rank, (role_label, scored, logic_key, max_r1, max_total, notes) in pools.items():
+        pool_diag_notes.extend(notes)
+        cap_note = f" (capped at {max_total})" if max_total is not None else ""
+        pool_diag_notes.append(
+            f"  → consumed {pool_taken[rank]} / {len(scored) if scored is not None else 0} from this pool{cap_note}")
+        pool_diag_notes.append("")
+    slot_notes[0] = pool_diag_notes
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_num}/{DIPORTO_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
 
 
 # ═════════════════════════════════════════════════════════════
@@ -31800,6 +32193,14 @@ elif active_cluster == "Fridges":
     # boosts (BSH: BOSCH↔PITSOS↔SIEMENS↔NEFF).
     recs, diag, slot_notes, full_candidates = run_fridge_engine(trigger, df_mda, df_history)
     slot_diag = []
+elif active_cluster == "Diporto":
+    # Ψυγεία Δίπορτα (two-door fridge-freezers) — trigger comes from the
+    # Home-file Sheet1 (df_diporto, deduped to 91 SKUs). Cross-sell cooking
+    # package from MDA (competitor fridges hard-dropped) + the SMEG-retro
+    # color-coordinated small kitchen from SDA. Hybrid sales × brand-family
+    # × color × price-tier scoring (reuses the Fridges pool builders).
+    recs, diag, slot_notes, full_candidates = run_diporto_engine(trigger, df_mda, df_sda, df_history)
+    slot_diag = []
 elif active_cluster == "Cookers":
     # Κουζίνες + Αξεσουάρ Κουζινών/Φούρνων (care, regulator, cookware,
     # trays, rails, probes) live in the MDA sheet; Ζυγαριές, Φριτέζες,
@@ -32424,6 +32825,15 @@ with st.expander("⚙️ System Diagnostics"):
                               'Κατασκευαστής','Χρώμα','Συνολική καθαρή χωρητικότητα',
                               'Σύστημα ψύξης','Συνδεσιμότητα','Συμβατό με εφαρμογή',
                               'Ενεργειακή κλάση ≡','Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Diporto":
+        # Ψυγεία Δίπορτα — rich spec data; surface the engine's drivers:
+        # brand (ecosystem), Χρώμα (the SMEG-retro coordination signal),
+        # device type (Δίπορτο), capacity, cooling system, price.
+        attr_keys_to_show = ['Material','Title','Level 1','Level 2','Hierarchy',
+                              'Κατασκευαστής','Χρώμα','Τύπος συσκευής',
+                              'Συνολική καθαρή χωρητικότητα','Σύστημα ψύξης',
+                              'Συνδεσιμότητα','Ενεργειακή κλάση ≡',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Cookers":
         # Cookers carry rich, near-100% spec data — surface the signals
         # that drive the engine: hob type (the hard gate), brand, burner
