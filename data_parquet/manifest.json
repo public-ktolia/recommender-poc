@@ -1,0 +1,104 @@
+{
+  "files": [
+    {
+      "name": "Recommendations GitHub.xlsx",
+      "sheets": [
+        {
+          "name": "History",
+          "path": "Recommendations_GitHub/History.parquet"
+        },
+        {
+          "name": "Products",
+          "path": "Recommendations_GitHub/Products.parquet"
+        },
+        {
+          "name": "Air",
+          "path": "Recommendations_GitHub/Air.parquet"
+        },
+        {
+          "name": "Music",
+          "path": "Recommendations_GitHub/Music.parquet"
+        },
+        {
+          "name": "Laptops",
+          "path": "Recommendations_GitHub/Laptops.parquet"
+        },
+        {
+          "name": "Peripherals",
+          "path": "Recommendations_GitHub/Peripherals.parquet"
+        },
+        {
+          "name": "Stationery",
+          "path": "Recommendations_GitHub/Stationery.parquet"
+        },
+        {
+          "name": "Books",
+          "path": "Recommendations_GitHub/Books.parquet"
+        },
+        {
+          "name": "Clusters",
+          "path": "Recommendations_GitHub/Clusters.parquet"
+        },
+        {
+          "name": "Slot_Matrix",
+          "path": "Recommendations_GitHub/Slot_Matrix.parquet"
+        }
+      ]
+    },
+    {
+      "name": "Recommendations GitHub Home.xlsx",
+      "sheets": [
+        {
+          "name": "SDA",
+          "path": "Recommendations_GitHub_Home/SDA.parquet"
+        },
+        {
+          "name": "Gaming",
+          "path": "Recommendations_GitHub_Home/Gaming.parquet"
+        },
+        {
+          "name": "Floor",
+          "path": "Recommendations_GitHub_Home/Floor.parquet"
+        },
+        {
+          "name": "IT",
+          "path": "Recommendations_GitHub_Home/IT.parquet"
+        },
+        {
+          "name": "MDA",
+          "path": "Recommendations_GitHub_Home/MDA.parquet"
+        },
+        {
+          "name": "Spare",
+          "path": "Recommendations_GitHub_Home/Spare.parquet"
+        }
+      ]
+    },
+    {
+      "name": "Recommendations GitHub Books.xlsx",
+      "sheets": [
+        {
+          "name": "Greek Books",
+          "path": "Recommendations_GitHub_Books/Greek_Books.parquet"
+        },
+        {
+          "name": "Greek School Books",
+          "path": "Recommendations_GitHub_Books/Greek_School_Books.parquet"
+        },
+        {
+          "name": "International School Books",
+          "path": "Recommendations_GitHub_Books/International_School_Books.parquet"
+        }
+      ]
+    },
+    {
+      "name": "Recommendations GitHub IntBooks.xlsx",
+      "sheets": [
+        {
+          "name": "Sheet1",
+          "path": "Recommendations_GitHub_IntBooks/Sheet1.parquet"
+        }
+      ]
+    }
+  ]
+}

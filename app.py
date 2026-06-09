@@ -7,10 +7,16 @@ import re
 import io
 import traceback
 import unicodedata
+import os
+import json
 from difflib import SequenceMatcher
 
 
 st.set_page_config(page_title="Smart Recommender POC", layout="wide")
+
+# Visible build marker — bump this when deploying so you can confirm in the
+# live app which version is running (shown in the sidebar).
+APP_BUILD = "parquet-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -8293,17 +8299,72 @@ EXCEL_FILES = [
     "Recommendations GitHub IntBooks.xlsx",   # v28.29 — International Books (Sheet1)
 ]
 
+# ─────────────────────────────────────────────────────────────
+# Parquet-backed data store. The source .xlsx workbooks are converted to
+# per-sheet Parquet files by convert_to_parquet.py. Reading Parquet avoids
+# openpyxl's large parse-time memory spike (the cause of Streamlit Community
+# Cloud's "over resource limits / too much memory" kills) and is faster.
+# Re-run `python convert_to_parquet.py` whenever the .xlsx files change.
+# ─────────────────────────────────────────────────────────────
+PARQUET_DIR = "data_parquet"
+_PARQUET_DIR_CANDIDATES = [
+    PARQUET_DIR,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), PARQUET_DIR),
+    "/mount/src/recommender-poc/data_parquet",
+]
+
+
+class _PQWorkbook:
+    """Minimal stand-in for pd.ExcelFile, backed by per-sheet Parquet files.
+
+    Exposes the same surface the loader relies on: `.sheet_names` and a
+    `read(sheet, columns=None, nrows=None)` method that mirrors the bits of
+    pd.read_excel the loader used (full read, column subset, header-only).
+    """
+
+    def __init__(self, base_dir, sheets):
+        self._base = base_dir
+        # real sheet name -> parquet path relative to base_dir
+        self._sheets = {s["name"]: s["path"] for s in sheets}
+
+    @property
+    def sheet_names(self):
+        return list(self._sheets.keys())
+
+    def read(self, sheet, columns=None, nrows=None):
+        full = os.path.join(self._base, self._sheets[sheet])
+        if nrows == 0:
+            # Header-only probe (replaces pd.read_excel(..., nrows=0)).
+            import pyarrow.parquet as _pq
+            names = _pq.read_schema(full).names
+            return pd.DataFrame({n: pd.Series(dtype=object) for n in names})
+        return pd.read_parquet(full, columns=columns)
+
+
 @st.cache_data(ttl=600)
 def load_all_data():
     # Build {sheet_name: ExcelFile} across all available files.
     sheet_source = {}
     opened_files = []
     opened_efs = []   # v28.44.1 — (path, ExcelFile) pairs, for multi-file sheet probing
+    pq_dir = next((d for d in _PARQUET_DIR_CANDIDATES
+                   if os.path.exists(os.path.join(d, "manifest.json"))), None)
+    if pq_dir is None:
+        raise FileNotFoundError(
+            "Parquet data not found. Run `python convert_to_parquet.py` to "
+            f"generate the {PARQUET_DIR}/ folder. Looked in: {_PARQUET_DIR_CANDIDATES}"
+        )
+    with open(os.path.join(pq_dir, "manifest.json"), encoding="utf-8") as _mf:
+        _manifest = json.load(_mf)
+    _by_name = {e["name"]: e for e in _manifest.get("files", [])}
+
+    # Iterate in EXCEL_FILES order so the "first file wins on duplicate sheet
+    # names" rule is preserved exactly as in the openpyxl version.
     for path in EXCEL_FILES:
-        try:
-            ef = pd.ExcelFile(path, engine='openpyxl')
-        except (FileNotFoundError, OSError):
+        entry = _by_name.get(path)
+        if entry is None:
             continue
+        ef = _PQWorkbook(pq_dir, entry["sheets"])
         opened_files.append(path)
         opened_efs.append((path, ef))
         for sh in ef.sheet_names:
@@ -8331,7 +8392,7 @@ def load_all_data():
                     break
         if ef is None:
             return pd.DataFrame()
-        df = pd.read_excel(ef, sheet_name=actual_name)
+        df = ef.read(actual_name)
         df.columns = df.columns.str.strip()
         return df
     
@@ -8390,7 +8451,7 @@ def load_all_data():
         if not sp_name:
             continue
         try:
-            cand = pd.read_excel(_ef, sheet_name=sp_name)
+            cand = _ef.read(sp_name)
         except Exception:
             continue
         cand.columns = cand.columns.str.strip()
@@ -8410,7 +8471,7 @@ def load_all_data():
                 if sh.strip().lower() == 'spare':
                     continue
                 try:
-                    head = pd.read_excel(_ef, sheet_name=sh, nrows=0)
+                    head = _ef.read(sh, nrows=0)
                 except Exception:
                     continue
                 head_cols = [str(c).strip() for c in head.columns]
@@ -8418,12 +8479,12 @@ def load_all_data():
                 if not key_cols:
                     continue
                 try:
-                    probe = pd.read_excel(_ef, sheet_name=sh, usecols=key_cols)
+                    probe = _ef.read(sh, columns=key_cols)
                 except Exception:
                     continue
                 probe.columns = probe.columns.str.strip()
                 if _has_coffee_rows(probe):
-                    full = pd.read_excel(_ef, sheet_name=sh)
+                    full = _ef.read(sh)
                     full.columns = full.columns.str.strip()
                     rescue.append(full)
         if rescue:
@@ -9016,6 +9077,9 @@ st.sidebar.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Build/version marker so you can confirm which version the live app is running.
+st.sidebar.caption(f"🔖 build: {APP_BUILD}")
 
 # Header with close button
 st.sidebar.markdown('''
