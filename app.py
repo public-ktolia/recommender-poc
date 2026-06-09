@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.56.1-2026-06-09"
+APP_BUILD = "parquet-v28.56.2-2026-06-09"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.56.1 — K-Pop CDs (Music sheet, Hierarchy='K-POP'): fan-collection engine. Όλα τα 10 slots είναι K-Pop CD. Υβριδικό: σχέση καλλιτέχνη/group (gate) × sales (κατάταξη) × version-collector λογική. Slots 1-2: ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ του ίδιου άλμπουμ (Deadline Black/Gray/Silver — "collect them all"). Slots 3-5: άλλα άλμπουμ του ΙΔΙΟΥ group (dedup ανά άλμπουμ, κρατάμε την best-selling έκδοση). Slots 6-7: ECOSYSTEM — solo μέλη ↔ group ↔ sub-units μέσω της στήλης Καλλιτέχνης.1 (RM;BTS, Jin;BTS, LISA;BLACKPINK). Slots 8-10: discovery — top K-Pop άλλων groups με boost ίδιας εταιρείας (HYBE/JYP/YG/SM). Top K-Pop backfill → 10/10. ΣΗΜΕΙΩΣΗ: same-hierarchy exclusion ΔΕΝ ισχύει — K-Pop→K-Pop ΕΙΝΑΙ η πρόταση. | v28.56.1 Manga fix: box-set/omnibus chaining ανά ΑΡΙΘΜΟ ΣΥΛΛΟΓΗΣ (Box Set 1→2→3, Omnibus 1→2,3,4 — όχι μεμονωμένοι τόμοι· parse collection number ακόμα κι με υπότιτλο "Box Set 1: East Blue"→1, αγνοεί το εσωτερικό "(Vol. 4-6)") + Final_Score fix (διόρθωση του KeyError στο "Final Recommendations"). | v28.55 — Manga (Κόμικς): series-continuation — Σειρά βιβλίου × τόμο × mangaka × εκδότη × sales, slots 1-5 επόμενοι τόμοι (Berserk Vol.7 → 8-12), μετά τόμοι που λείπουν / ίδιος mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch) / bestsellers εκδότη / top manga → 10/10. same-hierarchy exclusion ΔΕΝ ισχύει — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing, hard platform-lock → 10/10.
+        🟢 Engine v28.56.2 — K-Pop CDs (Music sheet, Hierarchy='K-POP'): fan-collection engine. Όλα τα 10 slots είναι K-Pop CD. Υβριδικό: σχέση καλλιτέχνη/group (gate) × sales (κατάταξη) × version-collector λογική. Slots 1-2: ΑΛΛΕΣ ΕΚΔΟΣΕΙΣ του ίδιου άλμπουμ (Deadline Black/Gray/Silver — "collect them all"). Slots 3-5: άλλα άλμπουμ του ΙΔΙΟΥ group (dedup ανά άλμπουμ, κρατάμε την best-selling έκδοση). Slots 6-7: ECOSYSTEM — solo μέλη ↔ group ↔ sub-units μέσω της στήλης Καλλιτέχνης.1 (RM;BTS, Jin;BTS, LISA;BLACKPINK). Slots 8-10: discovery — top K-Pop άλλων groups με boost ίδιας εταιρείας (HYBE/JYP/YG/SM). Top K-Pop backfill → 10/10. ΣΗΜΕΙΩΣΗ: same-hierarchy exclusion ΔΕΝ ισχύει — K-Pop→K-Pop ΕΙΝΑΙ η πρόταση. | v28.56.2 Manga: edition-LINE continuation (Deluxe trigger → επόμενα Deluxe, ΟΧΙ standard ίδιων τόμων)· caught-up (τελευταίος τόμος) → δείχνει 22,21 (προηγούμενοι, φθίνουσα) μετά 1,2,3 (αρχή)· όταν υπάρχει συνέχεια, slots 8-10 = discovery (ίδιος mangaka/εκδότης) αντί για flooding ίδιας σειράς. + box-set/omnibus chaining ανά ΑΡΙΘΜΟ ΣΥΛΛΟΓΗΣ (Box Set 1→2→3, Omnibus 1→2,3,4 — όχι μεμονωμένοι τόμοι· parse collection number ακόμα κι με υπότιτλο "Box Set 1: East Blue"→1, αγνοεί το εσωτερικό "(Vol. 4-6)") + Final_Score fix (διόρθωση του KeyError στο "Final Recommendations"). | v28.55 — Manga (Κόμικς): series-continuation — Σειρά βιβλίου × τόμο × mangaka × εκδότη × sales, slots 1-5 επόμενοι τόμοι (Berserk Vol.7 → 8-12), μετά τόμοι που λείπουν / ίδιος mangaka (Chainsaw Man → Goodbye Eri/Look Back/Fire Punch) / bestsellers εκδότη / top manga → 10/10. same-hierarchy exclusion ΔΕΝ ισχύει — manga→manga ΕΙΝΑΙ η πρόταση. | v28.54.5 — Χειριστήρια (Controllers): persona routing, hard platform-lock → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -13158,57 +13158,81 @@ def run_manga_engine(trigger, df_manga, df_history=None):
                                 ascending=[True, False, False])
         return rows.drop_duplicates(subset=['_vol'], keep='first')
 
-    # 1) + 2) SERIES continuation. The ordering key differs by format:
-    #   • COLLECTED formats (box sets / omnibuses) chain by their COLLECTION
-    #     number (Box Set 1→2→3, Omnibus 1→2→3) and stay on the same line —
-    #     a Box Set buyer wants the next Box Set, not a single Vol. 2.
-    #   • SINGLE / deluxe volumes chain by chapter-volume, one edition per
-    #     volume (preferring the trigger's edition family).
-    COLLECTED_FAMS = {'boxset', 'omnibus'}
+    # 1) + 2) SERIES continuation — forward on the trigger's OWN edition line,
+    #    then a context-aware "other" fill. Behaviours from live tuning:
+    #      • A SPECIAL-edition trigger (deluxe / box set / omnibus) stays on its
+    #        own line — a Berserk DELUXE never falls back to standard Berserk
+    #        volumes (that re-shows the same story in a worse edition). Box sets
+    #        / omnibuses order by COLLECTION number, not the inner chapter-vol.
+    #      • If forward continuation is plentiful (≥3 next), keep SERIES_OTHER
+    #        short (prequel / a little forward) and leave slots for discovery
+    #        (same mangaka / publisher) — otherwise a long series floods all 10
+    #        slots with itself.
+    #      • If the reader is caught up (no/few next — e.g. the latest volume),
+    #        SERIES_OTHER leads with the volumes right BEFORE the trigger
+    #        (descending: 22, 21 …) then the foundational start (1, 2, 3 …).
+    SPECIAL_FAMS = {'boxset', 'omnibus', 'deluxe'}
     if t_ser_n:
         same_series = p[p['_ser_n'] == t_ser_n].copy()
         # Unified sequence: collection number when present, else chapter-volume.
         same_series['_seq'] = same_series['_cnum']
         same_series.loc[same_series['_seq'].isna(), '_seq'] = \
             same_series.loc[same_series['_seq'].isna(), '_vol']
+        # The trigger's edition LINE (special editions get their own line;
+        # everything else shares the 'standard' main line).
+        line_fam = t_fam if t_fam in SPECIAL_FAMS else 'standard'
+        line = same_series[same_series['_fam'] == line_fam].copy()
+        t_seq = t_cnum if t_cnum is not None else t_vol
 
-        if t_fam in COLLECTED_FAMS:
-            t_seq = t_cnum if t_cnum is not None else t_vol
-            fam = same_series[same_series['_fam'] == t_fam].copy()
-            # SERIES_NEXT: next items on the SAME collected line, by sequence.
-            if t_seq is not None:
-                nxt = fam[fam['_seq'].notna() & (fam['_seq'] > t_seq)]
-            else:
-                nxt = fam[fam['_seq'].notna()]
+        # FORWARD — next items on the same edition line, reading order.
+        if t_seq is not None:
+            nxt = line[line['_seq'].notna() & (line['_seq'] > t_seq)]
             nxt = (nxt.sort_values(['_seq', '_sales'], ascending=[True, False])
                       .drop_duplicates('_seq'))
             take(nxt, 'SERIES_NEXT', cfg["n_series_next"],
-                 note=f'same series, next {t_fam}')
-            # SERIES_OTHER: remaining items on the same collected line first
-            # (earlier sets the reader may have skipped), then the rest of the
-            # series in any format as a deeper fallback.
-            rem_fam = (fam[~fam['Material'].isin(used)]
-                       .sort_values(['_seq', '_sales'], ascending=[True, False])
-                       .drop_duplicates('_seq'))
-            rest = same_series[(same_series['_fam'] != t_fam)
-                               & (~same_series['Material'].isin(used))].copy()
-            rest['_vs'] = rest['_vol'].fillna(9999)
-            rest = rest.sort_values(['_vs', '_sales'], ascending=[True, False])
-            take(pd.concat([rem_fam, rest]), 'SERIES_OTHER',
-                 cfg["cap_series_other"], note='same series, other editions/volumes')
+                 note=f'same series, next ({line_fam})')
+        n_fwd = sum(1 for _, role in picks if role == 'SERIES_NEXT')
+        diag.append(("series mode", n_fwd,
+                     "continuing" if n_fwd >= 3 else "caught-up/short"))
+
+        # One row per sequence on the line (highest-sales edition wins).
+        line_rem = (line[~line['Material'].isin(used)]
+                    .sort_values(['_seq', '_sales'], ascending=[True, False])
+                    .drop_duplicates('_seq'))
+        prequel = line_rem[line_rem['_seq'] == 0]
+        if t_seq is not None:
+            before = line_rem[(line_rem['_seq'].notna()) & (line_rem['_seq'] > 0)
+                              & (line_rem['_seq'] < t_seq)]
+            after_left = line_rem[line_rem['_seq'].notna() & (line_rem['_seq'] > t_seq)]
         else:
-            # SINGLE / deluxe trigger — chapter-volume ladder, one edition each.
-            if t_vol is not None:
-                nxt = same_series[(same_series['_vol'].notna())
-                                  & (same_series['_vol'] > t_vol)]
-                nxt = dedup_by_vol(nxt).sort_values('_vol')
-                take(nxt, 'SERIES_NEXT', cfg["n_series_next"],
-                     note='same series, next volumes')
-            oth = same_series[~same_series['Material'].isin(used)].copy()
-            with_vol = dedup_by_vol(oth[oth['_vol'].notna()]).sort_values('_vol')
-            no_vol = oth[oth['_vol'].isna()].sort_values('_sales', ascending=False)
-            take(pd.concat([with_vol, no_vol]), 'SERIES_OTHER',
-                 cfg["cap_series_other"], note='same series, other volumes')
+            before = line_rem.iloc[0:0]
+            after_left = line_rem[line_rem['_seq'].notna()]
+        noseq = (line[line['_seq'].isna() & (~line['Material'].isin(used))]
+                 .sort_values('_sales', ascending=False))
+        # Other-format editions / spinoffs of the series (lowest priority).
+        other_fmt = same_series[(same_series['_fam'] != line_fam)
+                                & (~same_series['Material'].isin(used))].copy()
+        other_fmt['_vs'] = other_fmt['_vol'].fillna(9999)
+        other_fmt = other_fmt.sort_values(['_vs', '_sales'], ascending=[True, False])
+
+        if n_fwd >= 3:
+            # CONTINUING — keep OTHER short; reserve slots 8-10 for discovery.
+            other_cap = 2
+            other_pool = pd.concat([prequel,
+                                    after_left.sort_values('_seq'),
+                                    before.sort_values('_seq', ascending=False)])
+        else:
+            # CAUGHT UP / short — fill from the series itself: the volumes right
+            # before (descending) then the start (ascending), then leftovers.
+            other_cap = cfg["cap_series_other"]
+            recent = before.sort_values('_seq', ascending=False).head(2)
+            foundation = before.sort_values('_seq', ascending=True)
+            other_pool = pd.concat([prequel, recent, foundation,
+                                    after_left.sort_values('_seq'),
+                                    noseq, other_fmt])
+        other_pool = other_pool.drop_duplicates(subset=['Material'])
+        take(other_pool, 'SERIES_OTHER', other_cap,
+             note='same series, other volumes')
 
     # 3) SAME_AUTHOR — other series by the same mangaka.
     if t_auth_n:
