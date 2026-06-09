@@ -103,7 +103,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.54 — Χειριστήρια (Controllers): το χειριστήριο ως trigger → ολοκλήρωση setup με ΣΥΜΒΑΤΑ-ΜΕ-ΤΗΝ-ΠΛΑΤΦΟΡΜΑ αξεσουάρ μόνο. Persona routing (PS5/PS4/Xbox/Switch/PC/Racing) — hard platform-lock gate (drop-before-scoring) × sales × χρώμα × keyword routing. Slots: βάση φόρτισης · συμβατό παιχνίδι · θήκη σιλικόνης · headset · καλώδιο/μπαταρία · καλύμματα αναλογικών · 2ο παιχνίδι · συνδρομή/πίστωση · θήκη μεταφοράς · αξεσουάρ. Same-hierarchy exclusion, domain-scoped universal backfill → 10/10.
+        🟢 Engine v28.54.1 — Χειριστήρια (Controllers): το χειριστήριο ως trigger → ολοκλήρωση setup με ΣΥΜΒΑΤΑ-ΜΕ-ΤΗΝ-ΠΛΑΤΦΟΡΜΑ αξεσουάρ μόνο. Persona routing (PS5/PS4/Xbox/Switch/PC/Racing) — hard platform-lock gate (drop-before-scoring) × sales × χρώμα × keyword routing. Racing wheel: μόνο racing games (slots & backfill) + cockpit complements (πετάλια/μοχλός/κάθισμα/desk) — εξαιρούνται ανταγωνιστικές τιμονιέρες, Switch toy-wheels & controller cosmetics. Slots: βάση φόρτισης · συμβατό παιχνίδι · θήκη σιλικόνης · headset · καλώδιο/μπαταρία · καλύμματα αναλογικών · 2ο παιχνίδι · συνδρομή/πίστωση · θήκη μεταφοράς · αξεσουάρ. Same-hierarchy exclusion, domain-scoped universal backfill → 10/10.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -5904,6 +5904,11 @@ CTRL_SKIN_RE  = re.compile(r'σιλικόν|silicone|θήκη σιλικ|θήκ�
                            r'\bcover\b|κάλυμμα χειριστηρ|faceplate', re.I)
 CTRL_GRIP_RE  = re.compile(r'thumb|\bgrip\b|grips|καλύμματα αναλογικ|αναλογικών μοχλ|stick cap|grip tape', re.I)
 CTRL_CASE_RE  = re.compile(r'θήκη|case|carry|μεταφορ|sleeve|protection|προστασ|bag', re.I)
+# A whole steering wheel (competing product) or a Switch Joy-Con "wheel-shaped"
+# toy holder — neither is a valid COMPLEMENT for a sim-racing wheel trigger.
+# Used to keep these out of the RACING accessory/extra/backfill pools.
+CTRL_WHEEL_RE = re.compile(r'τιμονιέρα|τιμονιερα|σχήμα τιμον|racing wheel|steering wheel|'
+                           r'gaming wheel|driving force|joy-?con.*τιμον|wheel.*joy-?con', re.I)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -29273,6 +29278,17 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
     # Restrict to the persona's domain (drop-before-scoring platform lock).
     domain_pool = pool_all[pool_all['_hier_u'].isin(all_persona_hiers)].copy()
 
+    # RACING compatibility gate: a sim-racing wheel's *complements* are pedals,
+    # shifters, handbrakes, stands, cockpits, chairs & racing games — never
+    # another whole wheel (competing product) nor a Switch Joy-Con "wheel-shaped"
+    # toy holder (incompatible). Drop those before scoring so they can't surface
+    # in any slot or in the universal backfill.
+    if racing_only:
+        _dt = domain_pool['Title'].fillna('').astype(str)
+        _wheel_like = _dt.str.contains(CTRL_WHEEL_RE, na=False)
+        _is_game    = domain_pool['_hier_u'].str.endswith('GAMES')
+        domain_pool = domain_pool[~(_wheel_like & ~_is_game)].copy()
+
     # Global prepaid pool (platform-agnostic).
     prepaid_pool = pool_all[pool_all['_hier_u'].isin({h.upper() for h in CTRL_PREPAID_HIERARCHIES})].copy()
 
@@ -29365,7 +29381,11 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
                 if not rac.empty:
                     pool = rac; notes.append(f"🏎 Racing-only filter: {len(pool)} titles")
                 else:
-                    notes.append("🏎 No racing title left → broadening")
+                    # Never put a non-racing title (e.g. FIFA, Resident Evil) on
+                    # a wheel — drop the slot and let the (racing-filtered)
+                    # backfill fill it with racing gear instead.
+                    slot_notes[slot_num] = notes + ["⊘ no racing title left → backfill (wheel-compatible only)"]
+                    diag.append((f"Slot {slot_num} ({role})", 0, "No racing game left")); continue
             if pool.empty:
                 slot_notes[slot_num] = notes + ["⊘ no game left → backfill"]
                 diag.append((f"Slot {slot_num} ({role})", 0, "No game candidates")); continue
@@ -29377,6 +29397,9 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
             pool.loc[pool['_p'] > CTRL_BUDGET['headset'], 'Final_Score'] -= 30000
 
         elif logic == 'SKIN':
+            if racing_only:
+                slot_notes[slot_num] = notes + ["⊘ wheel has no controller body to skin → backfill"]
+                diag.append((f"Slot {slot_num} ({role})", 0, "Skin n/a for racing wheel")); continue
             title = pool['Title'].fillna('').astype(str)
             skin = title.str.contains(CTRL_SKIN_RE, na=False)
             grip = title.str.contains(CTRL_GRIP_RE, na=False)
@@ -29389,6 +29412,9 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
             pool.loc[pool['_p'] > CTRL_BUDGET['skin'], 'Final_Score'] -= 30000
 
         elif logic == 'GRIP':
+            if racing_only:
+                slot_notes[slot_num] = notes + ["⊘ wheel has no thumbsticks to grip → backfill"]
+                diag.append((f"Slot {slot_num} ({role})", 0, "Grip n/a for racing wheel")); continue
             title = pool['Title'].fillna('').astype(str)
             grip = title.str.contains(CTRL_GRIP_RE, na=False)
             keep = pool[grip]
@@ -29499,6 +29525,15 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
                 fb = pd.concat([fb, extra_prepaid], ignore_index=True).drop_duplicates(subset=['Material'])
         fb['Final_Score'] = fb['Sales_30'].astype(float)
         fb = _avail_boost(fb)
+        # For a racing wheel, any GAME that backfills an empty slot must also be
+        # a racing title (same rule as the GAME slots) — keep FIFA/Resident Evil
+        # etc. out of the wheel's carousel entirely.
+        if racing_only and not fb.empty:
+            _fbg = fb['Hierarchy'].fillna('').astype(str).str.upper().str.strip().str.endswith('GAMES')
+            if _fbg.any():
+                _genre = fb.loc[_fbg, 'Title'].apply(_psg_classify_genre)
+                _non_racing = _fbg & fb.index.isin(_genre[_genre != 'racing'].index)
+                fb = fb[~_non_racing].copy()
         fb = fb.sort_values(['Final_Score', 'Sales_30'], ascending=[False, False])
 
         diag.append(("── Universal backfill ──", len(empty_slots),
@@ -29514,6 +29549,12 @@ def run_controllers_engine(trigger, df_gaming, df_history=None):
             return CTRL_GROUP_TO_ROLE.get(grp, ('Αξεσουάρ Gaming', 'Αναβάθμισε το setup σου.'))
 
         hier_count = {}
+        # Seed with hierarchies already placed by the main loop so the
+        # MAX_PER_HIER cap counts them too (prevents e.g. a 3rd headset when a
+        # persona's complement inventory is thin, as with racing wheels).
+        for _r in all_recs:
+            _h = str(_r.get('Hierarchy', '')).upper().strip()
+            hier_count[_h] = hier_count.get(_h, 0) + 1
         MAX_PER_HIER = 2
         for slot_num in empty_slots:
             prev_role = recs_by_slot.get(slot_num - 1, {}).get('Slot_Role') if (slot_num - 1) in recs_by_slot else None
