@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.58.0-2026-06-10"
+APP_BUILD = "parquet-v28.58.1-2026-06-10"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.58.0 — Mirrorless Φωτογραφικές Μηχανές cross-sell engine (mount-gated lenses, brand-locked accessories).
+        🟢 Engine v28.58.1 — Mirrorless cross-sell engine (per-role diversity cap: max 2 of any accessory type).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -31818,6 +31818,8 @@ def _nw_role_from_hier(row) -> str:
 # ════════════════════════════════════════════════════════════════════
 
 ML_SLOT_TARGET    = 10
+ML_MAX_PER_ROLE   = 2               # diversity cap: at most N slots of the same
+                                    # effective role (relaxed only to guarantee 10/10)
 ML_S_AVAILABILITY =   300_000       # in-stock boost
 ML_S_NATIVE_MOUNT = 1_200_000       # lens whose mount natively fits the body
 ML_S_ADAPT_MOUNT  =   350_000       # same-brand lens that needs an adapter
@@ -31902,6 +31904,8 @@ ML_MARKETING_COPY = {
     'Τσάντα / Θήκη':    "Προστάτεψε & μετέφερε τον εξοπλισμό σου με ασφάλεια.",
     'Μπαταρία':         "Κράτα τη μηχανή σου αναμμένη — εφεδρική μπαταρία της μάρκας σου.",
     'Φλας':             "Φώτισε τις λήψεις σου — εξωτερικό φλας για τη μηχανή σου.",
+    'Μικρόφωνο':        "Καθαρός ήχος στα video σου — μικρόφωνο για τη μηχανή σου.",
+    'Φωτισμός':         "Φώτισε σωστά τις λήψεις & τα vlog σου — LED φωτισμός.",
     'Μικρόφωνο / Φως':  "Ανέβασε το video & το vlog σου — μικρόφωνο ή φωτισμός.",
     'Card Reader / Storage':"Κατέβασε & κράτα ασφαλείς τις φωτογραφίες σου.",
     'Φίλτρο Φακού':     "Προστάτεψε τον φακό σου & βελτίωσε την εικόνα.",
@@ -31999,13 +32003,32 @@ def _ml_is_foreign_system_part(row, trig_brand) -> bool:
     """True if the accessory carries a DIFFERENT camera-system brand than the
     trigger (e.g. a Nikon flash for a Sony body, an Olympus battery grip for a
     Nikon body). Universal-accessory brands (HAMA, BOYA, SANDISK, INTENSO …)
-    are not camera systems, so they always pass."""
+    are not camera systems, so they always pass. The brand is read from the
+    Κατασκευαστής column AND from the Title (some rows carry a system brand
+    only in the title, e.g. an 'Olympus OEM-System' filter with a blank brand
+    column)."""
     br = _cm_norm(row.get('Κατασκευαστής', ''))
     tb = _cm_norm(trig_brand)
-    is_cam_brand = any(cb in br for cb in (_cm_norm(x) for x in ML_CAMERA_BRANDS))
-    if not is_cam_brand:
+    title = _cm_norm(row.get('Title', ''))
+    # camera-system brand tokens present in brand col OR title
+    present = [cb for cb in (_cm_norm(x) for x in ML_CAMERA_BRANDS)
+               if cb in br or cb in title]
+    if not present:
         return False
-    return not _ml_brand_matches(br, tb)
+    # foreign only if NONE of the present system brands matches the trigger
+    return not any(_ml_brand_matches(cb, tb) for cb in present)
+
+
+def _ml_fine_role(row) -> str:
+    """Split the generic photo-accessory bucket into distinct display roles so
+    a thin-ecosystem body (Sony/Fuji) gets varied slots instead of a single
+    'Μικρόφωνο / Φως' catch-all: microphone vs lighting vs other accessory."""
+    t = _cm_norm(row.get('Title', ''))
+    if re.search(r'ΜΙΚΡΟΦΩΝ|\bMIC\b|MICROPHONE|LAVALIER|SHOTGUN|\bRODE\b|WIRELESS GO', t):
+        return 'Μικρόφωνο'
+    if re.search(r'ΛΑΜΠΑ|\bLED\b|ΦΩΤΙΣΜ|RING ?LIGHT|\bLIGHT\b|\bΦΩΣ\b|PANEL', t):
+        return 'Φωτισμός'
+    return 'Αξεσουάρ Φωτογραφίας'
 
 
 def _ml_hier_slice(df, hier_set):
@@ -32098,8 +32121,14 @@ def _ml_score_lenses(pool, cam_mount, trig_price):
     return p.sort_values('Final_Score', ascending=False)
 
 
+_ML_GENERIC_HIERS_NORM = {'ΑΞΕΣΟΥΑΡ ΦΩΤΟΓΡΑΦΙΚΩΝ ΜΗΧΑΝΩΝ', 'OTHER ACCESSORIES', 'LIGHTS'}
+
+
 def _ml_role_from_hier(row) -> str:
-    return _ML_ROLE_BY_HIER.get(_cm_norm(row.get('Hierarchy', '')), 'Αξεσουάρ Φωτογραφίας')
+    h = _cm_norm(row.get('Hierarchy', ''))
+    if h in _ML_GENERIC_HIERS_NORM:
+        return _ml_fine_role(row)
+    return _ML_ROLE_BY_HIER.get(h, 'Αξεσουάρ Φωτογραφίας')
 
 
 def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_history):
@@ -32189,15 +32218,20 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     }
 
     # ── Persona-routed slot priority: (role_label, key, max_r1, max_total) ──
+    # Brand-specific pools stay at 1 (a body needs only one spare battery/flash/
+    # bag/filter). The UNIVERSAL companion pools (card/tripod/mic-light/reader)
+    # may supply up to 2 so sparse-ecosystem bodies (Sony/Fuji, which have no
+    # native lens/battery/flash here) still reach a varied 10 from genuine pools
+    # instead of relaxing into a backfill flood. ML_MAX_PER_ROLE caps each role.
     pri = [
         ('Φακός',                'lens',      2, 2),
-        ('Κάρτα Μνήμης',         'storage',   1, 1),
-        ('Τρίποδο',              'tripod',    1, 1),
+        ('Κάρτα Μνήμης',         'storage',   1, 2),
+        ('Τρίποδο',              'tripod',    1, 2),
         ('Τσάντα / Θήκη',        'bag',       1, 1),
         ('Μπαταρία',             'battery',   1, 1),
         ('Φλας',                 'flash',     1, 1),
-        ('Μικρόφωνο / Φως',      'mic_light', 1, 1),
-        ('Card Reader / Storage','reader',    1, 1),
+        ('Μικρόφωνο / Φως',      'mic_light', 1, 2),
+        ('Card Reader / Storage','reader',    1, 2),
         ('Φίλτρο Φακού',         'filter',    1, 1),
         ('Αξεσουάρ Φωτογραφίας', 'backfill',  2, None),
     ]
@@ -32213,6 +32247,7 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     used = {tm}
     cursors = {r: 0 for r in pools}
     taken = {r: 0 for r in pools}
+    role_counts = {}                     # effective-role → count (diversity cap)
     slot_num = 0
     round_idx = 0
     last_role = None
@@ -32221,6 +32256,8 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     def _eff_role(row, role_label):
         if role_label == 'Αξεσουάρ Φωτογραφίας':
             return _ml_role_from_hier(row)
+        if role_label == 'Μικρόφωνο / Φως':
+            return _ml_fine_role(row)
         if role_label == 'Φακός' and str(row.get('_ml_compat', '')) == 'ADAPT':
             return 'Φακός (αντάπτορας)'
         return role_label
@@ -32243,7 +32280,10 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
             while done < take_n and cursor < len(scored) and slot_num < ML_SLOT_TARGET:
                 row = scored.iloc[cursor]
                 eff = _eff_role(row, role_label)
-                if row['Material'] in used or (not relaxed and eff == last_role):
+                cap_hit = (not relaxed) and role_counts.get(eff, 0) >= ML_MAX_PER_ROLE
+                if (row['Material'] in used
+                        or (not relaxed and eff == last_role)
+                        or cap_hit):
                     cursor += 1
                     continue
                 cursor += 1
@@ -32256,6 +32296,7 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
                 rc['Item_Rank'] = round_idx
                 all_recs.append(rc)
                 used.add(row['Material'])
+                role_counts[eff] = role_counts.get(eff, 0) + 1
                 last_role = eff
                 done += 1
                 taken[rank] += 1
@@ -32269,7 +32310,7 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
             if not relaxed:
                 relaxed = True
                 cursors = {r: 0 for r in pools}
-                diag.append(("Loop", round_idx, "No-consecutive rule relaxed"))
+                diag.append(("Loop", round_idx, "No-consecutive + diversity-cap relaxed"))
                 continue
             diag.append(("Loop", round_idx, "All pools exhausted/capped — stopping"))
             break
