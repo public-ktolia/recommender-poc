@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.58.1-2026-06-10"
+APP_BUILD = "parquet-v28.58.2-2026-06-10"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.58.1 — Mirrorless cross-sell engine (per-role diversity cap: max 2 of any accessory type).
+        🟢 Engine v28.58.2 — Mirrorless cross-sell engine (1-per-hierarchy, no duplicate types; microSD only when the body supports it).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -31818,8 +31818,16 @@ def _nw_role_from_hier(row) -> str:
 # ════════════════════════════════════════════════════════════════════
 
 ML_SLOT_TARGET    = 10
-ML_MAX_PER_ROLE   = 2               # diversity cap: at most N slots of the same
-                                    # effective role (relaxed only to guarantee 10/10)
+ML_MAX_PER_HIER   = 1               # STRICT: never suggest more than one product
+                                    # from the same source hierarchy (no two memory
+                                    # cards, two tripods, two lenses, …). Carousels
+                                    # may fill fewer than 10 if the catalogue has no
+                                    # more distinct compatible hierarchies — duplicate
+                                    # padding is never acceptable.
+# Camera spec column listing the external-memory formats the body accepts
+# (e.g. 'SD', 'SD;microSD', 'SD;Cfexpress'). microSD cards are recommended ONLY
+# when this lists microSD, since the catalogue's only card hierarchy is microSD.
+ML_CARD_SPEC_COL  = 'Υποστήριξη εξωτερικής μνήμης'
 ML_S_AVAILABILITY =   300_000       # in-stock boost
 ML_S_NATIVE_MOUNT = 1_200_000       # lens whose mount natively fits the body
 ML_S_ADAPT_MOUNT  =   350_000       # same-brand lens that needs an adapter
@@ -31908,6 +31916,8 @@ ML_MARKETING_COPY = {
     'Φωτισμός':         "Φώτισε σωστά τις λήψεις & τα vlog σου — LED φωτισμός.",
     'Μικρόφωνο / Φως':  "Ανέβασε το video & το vlog σου — μικρόφωνο ή φωτισμός.",
     'Card Reader / Storage':"Κατέβασε & κράτα ασφαλείς τις φωτογραφίες σου.",
+    'Card Reader':      "Μετέφερε γρήγορα τις λήψεις σου στον υπολογιστή.",
+    'Εξωτερικός Δίσκος / SSD':"Κράτα ασφαλές backup όλων των φωτογραφιών & video σου.",
     'Φίλτρο Φακού':     "Προστάτεψε τον φακό σου & βελτίωσε την εικόνα.",
     'Αξεσουάρ Φωτογραφίας':"Δημοφιλές αξεσουάρ για τη φωτογραφία σου.",
 }
@@ -31922,9 +31932,16 @@ _ML_ROLE_BY_HIER = {
     'ΦΙΛΤΡΑ ΦΑΚΩΝ ΦΩΤΟΓΡΑΦΙΚΩΝ ΜΗΧΑΝΩΝ': 'Φίλτρο Φακού',
     'ΘΗΚΕΣ PHOTO': 'Τσάντα / Θήκη',
     'MICRO SD': 'Κάρτα Μνήμης',
-    'CARD READERS': 'Card Reader / Storage',
-    'EXTERNAL SSD USB': 'Card Reader / Storage',
+    'CARD READERS': 'Card Reader',
+    'EXTERNAL SSD USB': 'Εξωτερικός Δίσκος / SSD',
 }
+
+
+def _ml_supports_microsd(trigger) -> bool:
+    """True only if the body's external-memory spec explicitly lists microSD.
+    The catalogue's sole card hierarchy is microSD, so a body that takes only
+    full-size SD / CFexpress / XQD must NOT be offered a microSD card."""
+    return 'MICROSD' in _cm_norm(trigger.get(ML_CARD_SPEC_COL, ''))
 
 
 def _ml_cam_mount(trigger) -> str:
@@ -32192,9 +32209,19 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     generic  = _ml_base_score(_ml_hier_slice(c, ML_GENERIC_HIERS), tprice, tbrand, 'Μικρόφωνο / Φως',
                               drop_foreign_system=True)
 
-    # Cross-sheet universal storage (brand-agnostic — fits any camera)
-    storage = _ml_base_score(_ml_hier_slice(df_products, ML_STORAGE_HIERS),
-                             tprice, tbrand, 'Κάρτα Μνήμης', drop_offdomain=False)
+    # Cross-sheet universal storage. microSD is offered ONLY when the body's
+    # spec lists microSD (catalogue has no full-size SD cards), otherwise the
+    # pool is empty — suggesting a microSD card to an SD-/CFexpress-only body is
+    # a spec-compatibility error.
+    cam_microsd = _ml_supports_microsd(trigger)
+    if cam_microsd:
+        storage = _ml_base_score(_ml_hier_slice(df_products, ML_STORAGE_HIERS),
+                                 tprice, tbrand, 'Κάρτα Μνήμης', drop_offdomain=False)
+    else:
+        storage = pd.DataFrame()
+    diag.append(("Card-type gate",
+                 trigger.get(ML_CARD_SPEC_COL, '—'),
+                 "microSD offered" if cam_microsd else "microSD suppressed (body is SD/CFexpress/XQD only)"))
     readers = _ml_base_score(_ml_hier_slice(df_peripherals, ML_READER_HIERS),
                              tprice, tbrand, 'Card Reader / Storage', drop_offdomain=False)
 
@@ -32218,19 +32245,20 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     }
 
     # ── Persona-routed slot priority: (role_label, key, max_r1, max_total) ──
-    # Brand-specific pools stay at 1 (a body needs only one spare battery/flash/
-    # bag/filter). The UNIVERSAL companion pools (card/tripod/mic-light/reader)
-    # may supply up to 2 so sparse-ecosystem bodies (Sony/Fuji, which have no
-    # native lens/battery/flash here) still reach a varied 10 from genuine pools
-    # instead of relaxing into a backfill flood. ML_MAX_PER_ROLE caps each role.
+    # STRICT 1-per-hierarchy (ML_MAX_PER_HIER) is the real limiter, enforced in
+    # the fill loop. max_total here just bounds multi-hierarchy pools: 'reader'
+    # spans CARD READERS + EXTERNAL SSD USB (→2), 'mic_light' spans ΑΞΕΣΟΥΑΡ +
+    # Other Accessories + LIGHTS (→3); every single-hierarchy pool is 1. The
+    # carousel fills with DISTINCT product types only and may total <10 when the
+    # catalogue offers no further compatible hierarchy (no duplicate padding).
     pri = [
-        ('Φακός',                'lens',      2, 2),
-        ('Κάρτα Μνήμης',         'storage',   1, 2),
-        ('Τρίποδο',              'tripod',    1, 2),
+        ('Φακός',                'lens',      1, 1),
+        ('Κάρτα Μνήμης',         'storage',   1, 1),
+        ('Τρίποδο',              'tripod',    1, 1),
         ('Τσάντα / Θήκη',        'bag',       1, 1),
         ('Μπαταρία',             'battery',   1, 1),
         ('Φλας',                 'flash',     1, 1),
-        ('Μικρόφωνο / Φως',      'mic_light', 1, 2),
+        ('Μικρόφωνο / Φως',      'mic_light', 1, 3),
         ('Card Reader / Storage','reader',    1, 2),
         ('Φίλτρο Φακού',         'filter',    1, 1),
         ('Αξεσουάρ Φωτογραφίας', 'backfill',  2, None),
@@ -32247,7 +32275,7 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     used = {tm}
     cursors = {r: 0 for r in pools}
     taken = {r: 0 for r in pools}
-    role_counts = {}                     # effective-role → count (diversity cap)
+    hier_counts = {}                     # normalized Hierarchy → count (STRICT cap)
     slot_num = 0
     round_idx = 0
     last_role = None
@@ -32258,6 +32286,9 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
             return _ml_role_from_hier(row)
         if role_label == 'Μικρόφωνο / Φως':
             return _ml_fine_role(row)
+        if role_label == 'Card Reader / Storage':
+            h = _cm_norm(row.get('Hierarchy', ''))
+            return 'Card Reader' if 'CARD READER' in h else 'Εξωτερικός Δίσκος / SSD'
         if role_label == 'Φακός' and str(row.get('_ml_compat', '')) == 'ADAPT':
             return 'Φακός (αντάπτορας)'
         return role_label
@@ -32280,10 +32311,12 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
             while done < take_n and cursor < len(scored) and slot_num < ML_SLOT_TARGET:
                 row = scored.iloc[cursor]
                 eff = _eff_role(row, role_label)
-                cap_hit = (not relaxed) and role_counts.get(eff, 0) >= ML_MAX_PER_ROLE
+                row_hier = _cm_norm(row.get('Hierarchy', ''))
+                # STRICT, never-relaxed: at most ML_MAX_PER_HIER per hierarchy
+                hier_full = hier_counts.get(row_hier, 0) >= ML_MAX_PER_HIER
                 if (row['Material'] in used
                         or (not relaxed and eff == last_role)
-                        or cap_hit):
+                        or hier_full):
                     cursor += 1
                     continue
                 cursor += 1
@@ -32296,7 +32329,7 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
                 rc['Item_Rank'] = round_idx
                 all_recs.append(rc)
                 used.add(row['Material'])
-                role_counts[eff] = role_counts.get(eff, 0) + 1
+                hier_counts[row_hier] = hier_counts.get(row_hier, 0) + 1
                 last_role = eff
                 done += 1
                 taken[rank] += 1
@@ -32310,9 +32343,9 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
             if not relaxed:
                 relaxed = True
                 cursors = {r: 0 for r in pools}
-                diag.append(("Loop", round_idx, "No-consecutive + diversity-cap relaxed"))
+                diag.append(("Loop", round_idx, "No-consecutive rule relaxed (1-per-hierarchy cap stays hard)"))
                 continue
-            diag.append(("Loop", round_idx, "All pools exhausted/capped — stopping"))
+            diag.append(("Loop", round_idx, "No further distinct compatible hierarchy — stopping"))
             break
 
     diag.append(("TOTAL", len(all_recs),
