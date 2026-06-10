@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.58.2-2026-06-10"
+APP_BUILD = "parquet-v28.58.3-2026-06-10"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.58.2 — Mirrorless cross-sell engine (1-per-hierarchy, no duplicate types; microSD only when the body supports it).
+        🟢 Engine v28.58.3 — Mirrorless cross-sell engine (distinct types first, rotate to a mandatory 10; microSD/lens-mount spec-gated; no phone-rig gear).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -31901,6 +31901,7 @@ ML_OFFDOMAIN_BRANDS = {
 ML_OFFDOMAIN_TITLE_RE = (
     r'GOPRO|INSTA\s?360|\bOSMO\b|ACTION ?CAM|GIMBAL|\bDRONE\b|DASH ?CAM|'
     r'BULLET TIME|UTILITY FRAME|SELFIE|SNAPGRIP|SNAPPOD|MAGSAFE|'
+    r'SMARTPHONE|PHONE HOLDER|\bΚΙΝΗΤΟΥ\b|ΤΗΛΕΦΩΝΟΥ|'
     r'\bX2\b|\bX3\b|\bX4\b|FLOW 2|TG-?\d'
 )
 
@@ -32275,7 +32276,15 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
     used = {tm}
     cursors = {r: 0 for r in pools}
     taken = {r: 0 for r in pools}
-    hier_counts = {}                     # normalized Hierarchy → count (STRICT cap)
+    hier_counts = {}                     # normalized Hierarchy → count
+    cur_cap = ML_MAX_PER_HIER            # starts at 1 (distinct types first); rises
+                                         # to rotate in further products when needed
+    # total distinct compatible products available (exhaustion guard)
+    _avail_mats = set()
+    for _r, (_lbl, _sc, _a, _b) in pools.items():
+        if _sc is not None and not _sc.empty:
+            _avail_mats.update(_sc['Material'].astype(str).tolist())
+    pool_material_count = len(_avail_mats)
     slot_num = 0
     round_idx = 0
     last_role = None
@@ -32312,8 +32321,9 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
                 row = scored.iloc[cursor]
                 eff = _eff_role(row, role_label)
                 row_hier = _cm_norm(row.get('Hierarchy', ''))
-                # STRICT, never-relaxed: at most ML_MAX_PER_HIER per hierarchy
-                hier_full = hier_counts.get(row_hier, 0) >= ML_MAX_PER_HIER
+                # 1-per-hierarchy first; cur_cap rises (rotation) only when no
+                # further distinct type can be added but 10 not yet reached.
+                hier_full = hier_counts.get(row_hier, 0) >= cur_cap
                 if (row['Material'] in used
                         or (not relaxed and eff == last_role)
                         or hier_full):
@@ -32340,13 +32350,45 @@ def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_his
                     f"{str(row.get('Title',''))[:55]}")
             cursors[rank] = cursor
         if not progress:
+            n_distinct_used = len(used) - 1          # minus the trigger itself
             if not relaxed:
+                # try ignoring the no-consecutive rule at the current cap
                 relaxed = True
                 cursors = {r: 0 for r in pools}
-                diag.append(("Loop", round_idx, "No-consecutive rule relaxed (1-per-hierarchy cap stays hard)"))
+                diag.append(("Loop", round_idx, "No-consecutive rule relaxed"))
                 continue
-            diag.append(("Loop", round_idx, "No further distinct compatible hierarchy — stopping"))
+            if n_distinct_used < pool_material_count and cur_cap < 12:
+                # distinct types exhausted but more products exist → rotate in a
+                # second/third product from the richer hierarchies (spread out)
+                cur_cap += 1
+                relaxed = False
+                cursors = {r: 0 for r in pools}
+                taken = {r: 0 for r in pools}
+                diag.append(("Loop", round_idx,
+                             f"All distinct types shown — rotating (≤{cur_cap} per hierarchy) to fill 10"))
+                continue
+            diag.append(("Loop", round_idx, "Catalogue fully exhausted — entering rotation fill"))
             break
+
+    # ── MANDATORY 10: if the compatible catalogue genuinely can't field 10
+    #    distinct products, rotate (repeat) the chosen items, spread in order, so
+    #    the carousel always has exactly 10 slots. ──
+    if all_recs and slot_num < ML_SLOT_TARGET:
+        base = list(all_recs)
+        i = 0
+        while slot_num < ML_SLOT_TARGET:
+            src = base[i % len(base)]
+            slot_num += 1
+            rc = src.copy()
+            rc['Slot_Position'] = slot_num
+            rc['Assigned_Slot'] = slot_num
+            rc['Item_Rank'] = round_idx + 1
+            all_recs.append(rc)
+            slot_notes.setdefault(slot_num, []).append(
+                f"Rotation fill | repeats slot {(i % len(base)) + 1} | "
+                f"{str(src.get('Title',''))[:55]}")
+            i += 1
+        diag.append(("Rotation", slot_num, "Repeated items to fill mandatory 10 slots"))
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_num}/{ML_SLOT_TARGET} slots in {round_idx} rounds"))
