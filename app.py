@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.57.1-2026-06-09"
+APP_BUILD = "parquet-v28.58.0-2026-06-10"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.57.1 — Ψυγεία Δίπορτα cross-sell engine (no-rival-brand accessory gate).
+        🟢 Engine v28.58.0 — Mirrorless Φωτογραφικές Μηχανές cross-sell engine (mount-gated lenses, brand-locked accessories).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -8999,6 +8999,12 @@ NW_TEST_SKUS = {
     "1588966", "1865585", "1664296",
 }
 
+# ============================================================
+# MIRRORLESS CAMERAS CONFIG (Mirrorless Φωτογραφικές Μηχανές — v28.58) — trigger-side only
+# ============================================================
+MIRRORLESS_TRIGGER_HIERARCHIES = {'MIRRORLESS'}
+MIRRORLESS_TEST_SKUS = set()        # empty = show all triggers
+
 
 if 'active_cluster' not in st.session_state:
     st.session_state.active_cluster = None
@@ -9212,6 +9218,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Ccircle cx='12' cy='12' r='5.5'/%3E%3Ccircle cx='12' cy='12' r='1' fill='%23ff5e00'/%3E%3C/svg%3E"},
         {"key": "K-Pop CDs", "label": "K-Pop\\nCDs",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Ccircle cx='12' cy='12' r='2.6'/%3E%3Cpath d='M12 3a9 9 0 0 1 8 5'/%3E%3C/svg%3E"},
+        {"key": "Mirrorless", "label": "Mirrorless\\nΚάμερες",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7h4l2-2h6l2 2h4v12H3z'/%3E%3Ccircle cx='12' cy='13' r='3.5'/%3E%3C/svg%3E"},
     ],
     "Gaming": [
         {"key": "PS5 Console", "label": "PS5\nConsole",
@@ -10524,6 +10532,33 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Δικτυακό / Smart Home</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", net['Title'].unique(), label_visibility="collapsed", key="nw_sel")
                 trigger = net[net['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "Mirrorless":
+        # v28.58 — Mirrorless Φωτογραφικές Μηχανές. Triggers live in the SPARE
+        # sheet (Home file), Hierarchy = 'MIRRORLESS'.
+        if df_spare is None or df_spare.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Mirrorless κάμερες σε κανένα workbook. "
+                f"Sheets loaded: {', '.join(sheets_loaded)}"
+            )
+        else:
+            hier_u = df_spare['Hierarchy'].fillna('').astype(str).str.upper().str.strip() \
+                if 'Hierarchy' in df_spare.columns else pd.Series([''] * len(df_spare), index=df_spare.index)
+            trig_hiers = {h.upper() for h in MIRRORLESS_TRIGGER_HIERARCHIES}
+            cams = df_spare[hier_u.isin(trig_hiers)].copy()
+            if MIRRORLESS_TEST_SKUS and not cams.empty:
+                mat_clean = cams['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                hit = cams[mat_clean.isin(MIRRORLESS_TEST_SKUS)]
+                if not hit.empty:
+                    cams = hit
+            if not cams.empty:
+                cams = cams.drop_duplicates(subset=['Material'])
+            if cams.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Mirrorless κάμερες στο sheet Spare.")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Mirrorless Κάμερα</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", cams['Title'].unique(), label_visibility="collapsed", key="ml_sel")
+                trigger = cams[cams['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster == "Webcam":
         if df_peripherals.empty:
@@ -31773,6 +31808,482 @@ def _nw_role_from_hier(row) -> str:
     return _NW_ROLE_BY_HIER.get(h, 'Δικτυακό Bestseller')
 
 
+
+
+# ════════════════════════════════════════════════════════════════════
+# MIRRORLESS ENGINE (v28.58) — helpers + run_mirrorless_engine
+# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
+# MIRRORLESS CAMERAS CONFIG (Mirrorless Φωτογραφικές Μηχανές — v28.58)
+# ════════════════════════════════════════════════════════════════════
+
+ML_SLOT_TARGET    = 10
+ML_S_AVAILABILITY =   300_000       # in-stock boost
+ML_S_NATIVE_MOUNT = 1_200_000       # lens whose mount natively fits the body
+ML_S_ADAPT_MOUNT  =   350_000       # same-brand lens that needs an adapter
+ML_S_BRAND_MATCH  =   600_000       # accessory of the same camera brand
+ML_S_PRICE_BAND   =   120_000       # within a sensible price band of the body
+ML_S_SALES_FACTOR =       1.0       # sales tiebreaker weight
+
+# Camera brand → native mirrorless lens-mount family.
+ML_BRAND_MOUNT = {
+    'SONY': 'E', 'NIKON': 'Z', 'CANON': 'RF',
+    'FUJIFILM': 'X', 'FUJI': 'X',
+    'OLYMPUS': 'MFT', 'OM SYSTEM': 'MFT', 'OM-SYSTEM': 'MFT',
+    'PANASONIC': 'MFT', 'LUMIX': 'MFT',
+}
+
+# Companion hierarchies (Home/Spare sheet, Level 2 = 'Photo Accessories'),
+# plus storage from the main-file Products / Peripherals sheets.
+ML_LENS_HIERS    = {'ΦΑΚΟΙ'}
+ML_TRIPOD_HIERS  = {'TRIPODS'}
+ML_BATTERY_HIERS = {'CAM BATERIES'}
+ML_FLASH_HIERS   = {'FLASHES'}
+ML_FILTER_HIERS  = {'ΦΙΛΤΡΑ ΦΑΚΩΝ ΦΩΤΟΓΡΑΦΙΚΩΝ ΜΗΧΑΝΩΝ'}
+ML_BAG_HIERS     = {'ΘΗΚΕΣ PHOTO'}
+ML_GENERIC_HIERS = {'ΑΞΕΣΟΥΑΡ ΦΩΤΟΓΡΑΦΙΚΩΝ ΜΗΧΑΝΩΝ', 'Other Accessories', 'LIGHTS'}
+ML_STORAGE_HIERS = {'MICRO SD'}                 # df_products
+ML_READER_HIERS  = {'CARD READERS', 'EXTERNAL SSD USB'}   # df_peripherals
+
+# Whole photo-accessory domain (for the universal sales-ranked backfill).
+ML_PHOTO_DOMAIN_L2 = {'photo accessories'}
+
+# Hierarchies that are NOT mirrorless companions and are dropped from the
+# whole universe up-front: rival cameras, instant/35mm film, binoculars,
+# media players, and every ACTION-camera part bucket.
+ML_EXCLUDE_HIERS = {
+    'BINOCULARS', 'FILM', 'FILM CAMERAS', 'MEDIA PLAYERS',
+    'DIGITAL COMPACT', 'DIGITAL SLR', 'ADAPTER AC/DC',
+    'ΑΞΕΣΟΥΑΡ ACTION CAMERAS', 'ΒΑΣΕΙΣ ΣΤΗΡΙΞΗΣ ACTION CAMERAS',
+    'ΘΗΚΕΣ ACTION CAMERAS', 'ΙΜΑΝΤΕΣ ΣΤΗΡΙΞΗΣ ACTION CAMERAS',
+    'ΜΠΑΤΑΡΙΕΣ ACTION CAMERAS', 'ΤΡΙΠΟΔΑ ACTION CAMERAS',
+    'ΦΟΡΤΙΣΤΕΣ ACTION CAMERAS', 'ΜΠΑΤΑΡΙΕΣ ΒΙΝΤΕΟΚΑΜΕΡΑΣ',
+}
+
+# System-bound hierarchies that must NEVER come through the universal backfill
+# (they are mount/brand/model-specific and are handled only by their own
+# hard-gated dedicated pools): lenses, brand batteries, brand flashes.
+ML_BACKFILL_EXCLUDE_HIERS = {'ΦΑΚΟΙ', 'CAM BATERIES', 'FLASHES'}
+
+# Brands that ARE camera systems — an accessory carrying one of these brands
+# is presumed system-specific (battery grip, brand flash, brand body cap,
+# brand filter, etc.) and must match the trigger brand to be eligible. This is
+# the photo-domain form of the cross-brand-accessory hard gate.
+ML_CAMERA_BRANDS = {'CANON', 'NIKON', 'SONY', 'FUJIFILM', 'FUJI',
+                    'OLYMPUS', 'OM SYSTEM', 'OM-SYSTEM', 'PANASONIC', 'LUMIX'}
+
+# Title markers for items in the ΦΑΚΟΙ hierarchy that are NOT prime lenses —
+# teleconverters, fisheye converters, and mount adapters — kept out of the
+# lens slot (they are not a primary "buy a lens" cross-sell).
+ML_NONLENS_RE = (r'ΜΕΤΑΤΡΟΠΕΑΣ|FISHEYE|\bFCON\b|\bWCON\b|\bTCON\b|TELECONVERTER|'
+                 r'EXTENDER|\bADAPTER\b|ΑΝΤΑΠΤΟΡΑΣ|MOUNT ADAPTER|\bFTZ\b')
+
+# HARD off-domain gate. Action-cam / gimbal / drone / phone-rig gear is filed
+# in the same 'Photo Accessories' Level 2 but is useless to a mirrorless body
+# (an Insta360 X3 utility frame or a GoPro battery fits a mirrorless camera no
+# better than a Canon cartridge fits an Epson printer). Brand OR title match
+# drops the row before scoring. This is the photo-domain equivalent of the
+# printer-cartridge / cross-brand-accessory philosophy used across the app.
+ML_OFFDOMAIN_BRANDS = {
+    'INSTA360', 'INSTA 360', 'GOPRO', 'GORPO', 'DJI', 'GOXTREME',
+    'SHIFTCAM', "X'TREM", 'PGYTECH', 'KNOG',
+}
+ML_OFFDOMAIN_TITLE_RE = (
+    r'GOPRO|INSTA\s?360|\bOSMO\b|ACTION ?CAM|GIMBAL|\bDRONE\b|DASH ?CAM|'
+    r'BULLET TIME|UTILITY FRAME|SELFIE|SNAPGRIP|SNAPPOD|MAGSAFE|'
+    r'\bX2\b|\bX3\b|\bX4\b|FLOW 2|TG-?\d'
+)
+
+ML_MARKETING_COPY = {
+    'Φακός':            "Ξεκλείδωσε νέες οπτικές γωνίες — φακός συμβατός με τη μηχανή σου.",
+    'Φακός (αντάπτορας)':"Φακός της ίδιας μάρκας — με τον κατάλληλο αντάπτορα ταιριάζει στο σώμα σου.",
+    'Κάρτα Μνήμης':     "Αποθήκευσε χιλιάδες λήψεις — γρήγορη κάρτα μνήμης για τη μηχανή σου.",
+    'Τρίποδο':          "Σταθερές λήψεις & long exposure — τρίποδο για κάθε συνθήκη.",
+    'Τσάντα / Θήκη':    "Προστάτεψε & μετέφερε τον εξοπλισμό σου με ασφάλεια.",
+    'Μπαταρία':         "Κράτα τη μηχανή σου αναμμένη — εφεδρική μπαταρία της μάρκας σου.",
+    'Φλας':             "Φώτισε τις λήψεις σου — εξωτερικό φλας για τη μηχανή σου.",
+    'Μικρόφωνο / Φως':  "Ανέβασε το video & το vlog σου — μικρόφωνο ή φωτισμός.",
+    'Card Reader / Storage':"Κατέβασε & κράτα ασφαλείς τις φωτογραφίες σου.",
+    'Φίλτρο Φακού':     "Προστάτεψε τον φακό σου & βελτίωσε την εικόνα.",
+    'Αξεσουάρ Φωτογραφίας':"Δημοφιλές αξεσουάρ για τη φωτογραφία σου.",
+}
+
+# Hierarchy (UPPER, accent-stripped) → display role, used to relabel the
+# universal backfill rows by their TRUE type (so no-consecutive-role works).
+_ML_ROLE_BY_HIER = {
+    'ΦΑΚΟΙ': 'Φακός',
+    'TRIPODS': 'Τρίποδο',
+    'CAM BATERIES': 'Μπαταρία',
+    'FLASHES': 'Φλας',
+    'ΦΙΛΤΡΑ ΦΑΚΩΝ ΦΩΤΟΓΡΑΦΙΚΩΝ ΜΗΧΑΝΩΝ': 'Φίλτρο Φακού',
+    'ΘΗΚΕΣ PHOTO': 'Τσάντα / Θήκη',
+    'MICRO SD': 'Κάρτα Μνήμης',
+    'CARD READERS': 'Card Reader / Storage',
+    'EXTERNAL SSD USB': 'Card Reader / Storage',
+}
+
+
+def _ml_cam_mount(trigger) -> str:
+    """Native lens-mount family of the camera body (from brand, title fallback)."""
+    for field in ('Κατασκευαστής', 'Title'):
+        s = _cm_norm(trigger.get(field, ''))
+        for k, v in ML_BRAND_MOUNT.items():
+            if k in s:
+                return v
+    return ''
+
+
+def _ml_lens_mount(row) -> str:
+    """Derive a lens's mount from the evidence columns + title.
+    Returns one of RF / EF-S / EF / Z / MFT / X / E / ''.
+    Order matters — the most specific tokens are tested first so that EF-S and
+    RF are never swallowed by a bare 'EF' match."""
+    s = _cm_norm(' '.join(str(row.get(c, '')) for c in (
+        'Σειρά προϊόντων', 'Τρόπος προσαρμογής', 'Προτεινόμενη χρήση',
+        'Title', 'Κατασκευαστής')))
+    if 'EF-S' in s or 'EFS' in s:
+        return 'EF-S'
+    if re.search(r'\bRF-?S?\b', s) or 'RF MOUNT' in s:
+        return 'RF'
+    if ('NIKKOR Z' in s or 'NIKON Z' in s or 'Z-MOUNT' in s or 'Z MOUNT' in s
+            or re.search(r'\bZ\s?\d', s)):
+        return 'Z'
+    if ('M.ZUIKO' in s or 'MZUIKO' in s or 'MICRO FOUR THIRDS' in s
+            or 'MFT' in s or 'M4/3' in s or 'M43' in s):
+        return 'MFT'
+    if 'FUJINON' in s or re.search(r'\bXF\b', s) or re.search(r'\bXC\b', s) or 'FUJIFILM X' in s:
+        return 'X'
+    if re.search(r'\bFE\b', s) or 'E-MOUNT' in s or 'E MOUNT' in s:
+        return 'E'
+    if re.search(r'\bEF\b', s):
+        return 'EF'
+    # brand-only fallback for ambiguous rows
+    br = _cm_norm(row.get('Κατασκευαστής', ''))
+    if 'CANON' in br:
+        return 'RF'
+    if 'NIKON' in br:
+        return 'Z'
+    if 'OLYMPUS' in br:
+        return 'MFT'
+    return ''
+
+
+def _ml_lens_compat(cam_mount, lens_mount) -> str:
+    """'NATIVE' | 'ADAPT' | '' — whether a lens fits the body's mount."""
+    if not cam_mount or not lens_mount:
+        return ''
+    if cam_mount == lens_mount:
+        return 'NATIVE'
+    if cam_mount == 'RF' and lens_mount in ('EF', 'EF-S'):
+        return 'ADAPT'          # Canon EF/EF-S → R body via EF-EOS R adapter
+    return ''
+
+
+def _ml_is_offdomain(row) -> bool:
+    """True if the row is action-cam / gimbal / drone / phone-rig gear that
+    does not belong on a mirrorless-body carousel."""
+    br = _cm_norm(row.get('Κατασκευαστής', ''))
+    if any(_cm_norm(b) in br for b in ML_OFFDOMAIN_BRANDS):
+        return True
+    t = _cm_norm(row.get('Title', ''))
+    return bool(re.search(ML_OFFDOMAIN_TITLE_RE, t))
+
+
+def _ml_brand_matches(row_brand_norm, trig_brand_norm) -> bool:
+    if not trig_brand_norm or not row_brand_norm:
+        return False
+    return trig_brand_norm in row_brand_norm or row_brand_norm in trig_brand_norm
+
+
+def _ml_is_foreign_system_part(row, trig_brand) -> bool:
+    """True if the accessory carries a DIFFERENT camera-system brand than the
+    trigger (e.g. a Nikon flash for a Sony body, an Olympus battery grip for a
+    Nikon body). Universal-accessory brands (HAMA, BOYA, SANDISK, INTENSO …)
+    are not camera systems, so they always pass."""
+    br = _cm_norm(row.get('Κατασκευαστής', ''))
+    tb = _cm_norm(trig_brand)
+    is_cam_brand = any(cb in br for cb in (_cm_norm(x) for x in ML_CAMERA_BRANDS))
+    if not is_cam_brand:
+        return False
+    return not _ml_brand_matches(br, tb)
+
+
+def _ml_hier_slice(df, hier_set):
+    if df is None or df.empty or 'Hierarchy' not in df.columns:
+        return pd.DataFrame()
+    h = df['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+    return df[h.isin({x.upper() for x in hier_set})].copy()
+
+
+def _ml_base_score(pool, trig_price, trig_brand, role, drop_offdomain=True,
+                   drop_foreign_system=False):
+    """Hybrid sales × brand × price-band score. pandas-3.x safe."""
+    if pool is None or pool.empty:
+        return pd.DataFrame()
+    p = pool.copy()
+    if drop_offdomain:
+        p = p[~p.apply(_ml_is_offdomain, axis=1)]
+    if drop_foreign_system and not p.empty:
+        p = p[~p.apply(lambda r: _ml_is_foreign_system_part(r, trig_brand), axis=1)]
+    if p.empty:
+        return pd.DataFrame()
+    n = len(p)
+
+    avail = p['AVAILABILITY'].fillna('').astype(str).map(_cm_norm) \
+        if 'AVAILABILITY' in p.columns else pd.Series([''] * n, index=p.index)
+    in_stock = avail.str.contains('IN STOCK|ΔΙΑΘ|AVAILABLE|YES|NAI', regex=True, na=False).to_numpy()
+
+    sales = pd.to_numeric(p['Sum of Sales'], errors='coerce').fillna(0).to_numpy(dtype=float) \
+        if 'Sum of Sales' in p.columns else np.zeros(n)
+    prices = np.array([parse_euro_price(v) for v in p['LIST PRICE']], dtype=float) \
+        if 'LIST PRICE' in p.columns else np.zeros(n)
+
+    brands = p['Κατασκευαστής'].fillna('').astype(str).map(_cm_norm) \
+        if 'Κατασκευαστής' in p.columns else pd.Series([''] * n, index=p.index)
+    tb = _cm_norm(trig_brand)
+    brand_match = np.array([bool(tb) and (tb in b or b in tb) and b != '' for b in brands])
+
+    band = np.zeros(n)
+    if trig_price > 0:
+        ratio = np.divide(prices, trig_price, out=np.full(n, 99.0), where=prices > 0)
+        band = np.where((ratio >= 0.05) & (ratio <= 3.0), 1.0, 0.0)
+
+    score = (in_stock.astype(float) * ML_S_AVAILABILITY
+             + brand_match.astype(float) * ML_S_BRAND_MATCH
+             + band * ML_S_PRICE_BAND
+             + np.log1p(np.clip(sales, 0, None)) * 10_000 * ML_S_SALES_FACTOR)
+
+    p = p.assign(Final_Score=score, _ml_brand_match=brand_match)
+    p = p.sort_values('Final_Score', ascending=False)
+    return p
+
+
+def _ml_score_lenses(pool, cam_mount, trig_price):
+    """Lens pool with a HARD mount gate: keep only NATIVE or (Canon) ADAPT
+    lenses; everything else (wrong-brand mounts) is dropped before scoring."""
+    if pool is None or pool.empty:
+        return pd.DataFrame()
+    p = pool.copy()
+    p = p[~p.apply(_ml_is_offdomain, axis=1)]
+    # Teleconverters / fisheye converters / mount adapters are not prime lenses
+    if not p.empty and 'Title' in p.columns:
+        tt = p['Title'].fillna('').astype(str).map(_cm_norm)
+        p = p[~tt.str.contains(ML_NONLENS_RE, regex=True, na=False)]
+    if p.empty:
+        return pd.DataFrame()
+    compat = p.apply(lambda r: _ml_lens_compat(cam_mount, _ml_lens_mount(r)), axis=1)
+    p = p.assign(_ml_compat=compat)
+    p = p[p['_ml_compat'].isin(('NATIVE', 'ADAPT'))]
+    if p.empty:
+        return pd.DataFrame()
+    n = len(p)
+    avail = p['AVAILABILITY'].fillna('').astype(str).map(_cm_norm) \
+        if 'AVAILABILITY' in p.columns else pd.Series([''] * n, index=p.index)
+    in_stock = avail.str.contains('IN STOCK|ΔΙΑΘ|AVAILABLE|YES|NAI', regex=True, na=False).to_numpy()
+    sales = pd.to_numeric(p['Sum of Sales'], errors='coerce').fillna(0).to_numpy(dtype=float) \
+        if 'Sum of Sales' in p.columns else np.zeros(n)
+    prices = np.array([parse_euro_price(v) for v in p['LIST PRICE']], dtype=float) \
+        if 'LIST PRICE' in p.columns else np.zeros(n)
+    mount_boost = np.where(p['_ml_compat'].to_numpy() == 'NATIVE',
+                           ML_S_NATIVE_MOUNT, ML_S_ADAPT_MOUNT)
+    band = np.zeros(n)
+    if trig_price > 0:
+        ratio = np.divide(prices, trig_price, out=np.full(n, 99.0), where=prices > 0)
+        band = np.where((ratio >= 0.05) & (ratio <= 3.0), 1.0, 0.0)
+    score = (mount_boost
+             + in_stock.astype(float) * ML_S_AVAILABILITY
+             + band * ML_S_PRICE_BAND
+             + np.log1p(np.clip(sales, 0, None)) * 10_000 * ML_S_SALES_FACTOR)
+    p = p.assign(Final_Score=score)
+    return p.sort_values('Final_Score', ascending=False)
+
+
+def _ml_role_from_hier(row) -> str:
+    return _ML_ROLE_BY_HIER.get(_cm_norm(row.get('Hierarchy', '')), 'Αξεσουάρ Φωτογραφίας')
+
+
+def run_mirrorless_engine(trigger, df_spare, df_products, df_peripherals, df_history):
+    """Build up to 10 cross-sell slots for a mirrorless-camera trigger.
+
+    Single persona (interchangeable-lens body), parametrized by the body's
+    lens-mount family. Lenses pass a HARD mount gate (native, or same-brand
+    adaptable for Canon); batteries are brand-locked; tripods / cards / mics /
+    lights / readers are universal. Action-cam / gimbal / drone gear is hard-
+    dropped from every pool. A universal sales-ranked photo-accessory backfill
+    (action-cam still gated) guarantees 10/10.
+    """
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    if df_spare is None or df_spare.empty:
+        diag.append(("ERROR", 0, "Spare sheet empty — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    tm = trigger['Material']
+    tbrand = str(trigger.get('Κατασκευαστής', '')).strip()
+    tprice = parse_euro_price(trigger.get('LIST PRICE', 0))
+    cam_mount = _ml_cam_mount(trigger)
+
+    diag.append(("0. Trigger", f"{tbrand or '—'} €{tprice:.0f}",
+                 f"Mount={cam_mount or '—'} | {str(trigger.get('Title',''))[:50]}"))
+
+    # ── Universe: photo accessories from the Spare sheet, minus the trigger,
+    #    minus its own hierarchy (no MIRRORLESS → MIRRORLESS), minus the
+    #    off-domain hierarchies (rival cameras, film, binoculars, action-cam) ──
+    c = df_spare[df_spare['Material'] != tm].copy()
+    if 'Hierarchy' in c.columns:
+        hier_u = c['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+        c = c[~hier_u.isin({h.upper() for h in ML_EXCLUDE_HIERS})]
+    if 'Level 2' in c.columns:
+        l2 = c['Level 2'].fillna('').astype(str).str.strip().str.lower()
+        c = c[l2.isin(ML_PHOTO_DOMAIN_L2) | c['Hierarchy'].fillna('').astype(str)
+              .str.upper().str.strip().isin({h.upper() for h in ML_LENS_HIERS})]
+    t_hier = _cm_norm(trigger.get('Hierarchy', ''))
+    if 'Hierarchy' in c.columns:
+        c = c[c['Hierarchy'].fillna('').astype(str).map(_cm_norm) != t_hier]
+
+    # ── Build pools ──
+    lenses   = _ml_score_lenses(_ml_hier_slice(c, ML_LENS_HIERS), cam_mount, tprice)
+    tripods  = _ml_base_score(_ml_hier_slice(c, ML_TRIPOD_HIERS), tprice, tbrand, 'Τρίποδο',
+                              drop_foreign_system=True)
+    batteries_raw = _ml_hier_slice(c, ML_BATTERY_HIERS)
+    # HARD brand-lock on batteries (a Canon battery never fits an Olympus body)
+    if not batteries_raw.empty and _cm_norm(tbrand):
+        bb = batteries_raw['Κατασκευαστής'].fillna('').astype(str).map(_cm_norm)
+        batteries_raw = batteries_raw[bb.apply(lambda b: _ml_brand_matches(b, _cm_norm(tbrand)))]
+    batteries = _ml_base_score(batteries_raw, tprice, tbrand, 'Μπαταρία')
+    # Flash / filter / bag carry system-specific brands → hard foreign-system gate
+    flashes  = _ml_base_score(_ml_hier_slice(c, ML_FLASH_HIERS), tprice, tbrand, 'Φλας',
+                              drop_foreign_system=True)
+    filters  = _ml_base_score(_ml_hier_slice(c, ML_FILTER_HIERS), tprice, tbrand, 'Φίλτρο Φακού',
+                              drop_foreign_system=True)
+    bags     = _ml_base_score(_ml_hier_slice(c, ML_BAG_HIERS), tprice, tbrand, 'Τσάντα / Θήκη',
+                              drop_foreign_system=True)
+    generic  = _ml_base_score(_ml_hier_slice(c, ML_GENERIC_HIERS), tprice, tbrand, 'Μικρόφωνο / Φως',
+                              drop_foreign_system=True)
+
+    # Cross-sheet universal storage (brand-agnostic — fits any camera)
+    storage = _ml_base_score(_ml_hier_slice(df_products, ML_STORAGE_HIERS),
+                             tprice, tbrand, 'Κάρτα Μνήμης', drop_offdomain=False)
+    readers = _ml_base_score(_ml_hier_slice(df_peripherals, ML_READER_HIERS),
+                             tprice, tbrand, 'Card Reader / Storage', drop_offdomain=False)
+
+    # Universal photo-accessory backfill: the photo domain MINUS the system-
+    # bound hierarchies (handled by their own gated pools) + the universal
+    # storage/reader pools, all action-cam-gated and foreign-system-gated so a
+    # Nikon-only part can never land on a Sony body. Guarantees 10/10.
+    c_uni = c.copy()
+    if 'Hierarchy' in c_uni.columns:
+        hu = c_uni['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+        c_uni = c_uni[~hu.isin({h.upper() for h in ML_BACKFILL_EXCLUDE_HIERS})]
+    backfill_pool = pd.concat([df for df in (c_uni, storage, readers) if not df.empty],
+                              ignore_index=True)
+    backfill = _ml_base_score(backfill_pool, tprice, tbrand, 'Αξεσουάρ Φωτογραφίας',
+                              drop_foreign_system=True)
+
+    P = {
+        'lens': lenses, 'storage': storage, 'tripod': tripods, 'bag': bags,
+        'battery': batteries, 'flash': flashes, 'mic_light': generic,
+        'reader': readers, 'filter': filters, 'backfill': backfill,
+    }
+
+    # ── Persona-routed slot priority: (role_label, key, max_r1, max_total) ──
+    pri = [
+        ('Φακός',                'lens',      2, 2),
+        ('Κάρτα Μνήμης',         'storage',   1, 1),
+        ('Τρίποδο',              'tripod',    1, 1),
+        ('Τσάντα / Θήκη',        'bag',       1, 1),
+        ('Μπαταρία',             'battery',   1, 1),
+        ('Φλας',                 'flash',     1, 1),
+        ('Μικρόφωνο / Φως',      'mic_light', 1, 1),
+        ('Card Reader / Storage','reader',    1, 1),
+        ('Φίλτρο Φακού',         'filter',    1, 1),
+        ('Αξεσουάρ Φωτογραφίας', 'backfill',  2, None),
+    ]
+
+    pools = {}
+    for rank, (role_label, key, max_r1, max_total) in enumerate(pri, start=1):
+        scored = P.get(key, pd.DataFrame())
+        pools[rank] = (role_label, scored, max_r1, max_total)
+        diag.append((f"Pool {rank} ({role_label})",
+                     0 if scored is None or scored.empty else len(scored),
+                     f"key={key}"))
+
+    used = {tm}
+    cursors = {r: 0 for r in pools}
+    taken = {r: 0 for r in pools}
+    slot_num = 0
+    round_idx = 0
+    last_role = None
+    relaxed = False
+
+    def _eff_role(row, role_label):
+        if role_label == 'Αξεσουάρ Φωτογραφίας':
+            return _ml_role_from_hier(row)
+        if role_label == 'Φακός' and str(row.get('_ml_compat', '')) == 'ADAPT':
+            return 'Φακός (αντάπτορας)'
+        return role_label
+
+    while slot_num < ML_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total) in pools.items():
+            if slot_num >= ML_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cursor = cursors[rank]
+            done = 0
+            while done < take_n and cursor < len(scored) and slot_num < ML_SLOT_TARGET:
+                row = scored.iloc[cursor]
+                eff = _eff_role(row, role_label)
+                if row['Material'] in used or (not relaxed and eff == last_role):
+                    cursor += 1
+                    continue
+                cursor += 1
+                slot_num += 1
+                rc = row.copy()
+                rc['Slot_Position'] = slot_num
+                rc['Assigned_Slot'] = slot_num
+                rc['Slot_Role'] = eff
+                rc['Marketing_Copy'] = ML_MARKETING_COPY.get(eff, "Ιδανική επιλογή!")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                last_role = eff
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_num, []).append(
+                    f"Round {round_idx} | Pool '{role_label}'→'{eff}' | "
+                    f"Score:{float(row.get('Final_Score',0)):,.0f} | "
+                    f"{str(row.get('Title',''))[:55]}")
+            cursors[rank] = cursor
+        if not progress:
+            if not relaxed:
+                relaxed = True
+                cursors = {r: 0 for r in pools}
+                diag.append(("Loop", round_idx, "No-consecutive rule relaxed"))
+                continue
+            diag.append(("Loop", round_idx, "All pools exhausted/capped — stopping"))
+            break
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_num}/{ML_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
 def run_networking_engine(trigger, df_spare, df_peripherals, df_products, df_history):
     """Build up to 10 cross-sell slots for a networking / smart-home trigger.
 
@@ -32384,6 +32895,13 @@ elif active_cluster == "Networking":
     recs, diag, slot_notes, full_candidates = run_networking_engine(
         trigger, df_spare, df_peripherals, df_products, df_history)
     slot_diag = []
+elif active_cluster == "Mirrorless":
+    # v28.58 — Mirrorless Φωτογραφικές Μηχανές engine (SPARE-sheet triggers,
+    # mount-gated lenses, brand-locked batteries/flashes/filters, action-cam
+    # off-domain gate, universal storage/reader backfill → 10/10).
+    recs, diag, slot_notes, full_candidates = run_mirrorless_engine(
+        trigger, df_spare, df_products, df_peripherals, df_history)
+    slot_diag = []
 elif active_cluster in ("Monitors", "Webcam", "USB Hub"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -32885,6 +33403,13 @@ with st.expander("⚙️ System Diagnostics"):
         attr_keys_to_show = ['Material','Title','Level 1','Level 2','Hierarchy',
                               'Κατασκευαστής','Μοντέλο','Χρώμα','Συμβατή Κονσόλα',
                               'Τεχνολογία Σύνδεσης','Συνδεσιμότητα',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Mirrorless":
+        # v28.58 — mount derived from brand (Σύστημα φακού column is polluted);
+        # the engine's "0. Trigger" diagnostic line shows the resolved mount.
+        attr_keys_to_show = ['Material','Title','Level 1','Level 2','Hierarchy',
+                              'Κατασκευαστής','Μοντέλο','Σύστημα φακού',
+                              'Χαρακτηριστικά Αισθητήρα','Ανάλυση αισθητήρα','Χρώμα',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
     else:
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy','Κατασκευαστής','Μοντέλο','LIST PRICE']
