@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.60.1-2026-06-11"
+APP_BUILD = "parquet-v28.60.2-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.60.1 — Ηλεκτρικά Πατίνια: αξεσουάρ & ασφάλεια με hard συμβατότητα ανά brand/μοντέλο· φορτιστής κλειδωμένος στο brand.
+        🟢 Engine v28.60.2 — Ηλεκτρικά Πατίνια: προτάσεις προσαρμοσμένες σε τιμή, specs (βάρος αναβάτη→παιδικό) & brand· φορτιστής/τσάντα κλειδωμένα στο brand.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1323,6 +1323,21 @@ ESCOOTER_S_SCOOTER_TAG     =  120_000   # Accessory explicitly tagged για Kic
 ESCOOTER_S_PRICE_SAME_TIER =  150_000   # Trade-up scooter in the same price tier
 ESCOOTER_S_PRICE_STEPUP    =  200_000   # Trade-up scooter exactly one tier above (upsell)
 ESCOOTER_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
+
+# ── Price/spec responsiveness (v28.60.2) ──────────────────────────────────
+# The accessory pool is mostly universal, so the carousel only differentiates
+# if scoring reacts to the trigger's PRICE and SPECS, not just brand:
+#   • Price-proximity: a PREMIUM scooter ranks the pricier (better) item in a
+#     role first; an ENTRY scooter ranks the cheaper one first; MID prefers a
+#     mid-priced (~€25) item. Reorders mounts / bags / pumps per trigger.
+#   • Over-budget gate: an accessory that costs MORE than the scooter sinks
+#     (a €169 helmet must never lead on a €119 scooter).
+#   • Spec gate: max rider weight ≤60 kg ⇒ kids/youth segment (cheap LED helmet
+#     instead of the €169 adult helmet) — see _esc_is_kids.
+ESCOOTER_S_PRICE_FIT_FACTOR =   2_000   # per € of accessory price (signed by tier)
+ESCOOTER_PRICE_FIT_MID_EUR  =      25   # mid-tier scooters prefer ~€25 accessories
+ESCOOTER_S_OVER_BUDGET      =  -1_000_000  # accessory dearer than the scooter → sink
+ESCOOTER_KIDS_WEIGHT_KG     =      60   # max rider weight ≤ this ⇒ kids/youth segment
 
 
 def get_clima_tier_by_btu(price, btu):
@@ -18949,16 +18964,27 @@ def _esc_brand_family(brand: str) -> str:
     return 'SEGWAY' if b == 'NINEBOT' else b
 
 
+def _esc_num(val):
+    """First integer in a spec string ('50 kg' → 50, '70 - 79 km' → 70)."""
+    m = re.search(r'(\d+)', str(val or ''))
+    return int(m.group(1)) if m else None
+
+
 def _esc_is_kids(row) -> bool:
-    """Kids scooter / kids gear detection. Kiddoboo is kids-only; Urbanglide
-    'Ride Flash' is the kids model; very low top speed (≤9 km/h) or a child
-    age band also flags kids. Used to pair kids helmets with kids scooters."""
+    """Kids/youth scooter or kids gear detection. Kiddoboo is kids-only;
+    Urbanglide 'Ride Flash' is the kids model; very low top speed (≤9 km/h),
+    a child age band, OR a low max rider weight (≤60 kg — every adult scooter
+    in the catalog is ≥90 kg) flags kids/youth. Used to pair the cheap kids
+    LED helmets with kids scooters and keep the €169 adult helmet off them."""
     blob = _esc_norm(f"{row.get('Title','')} {row.get('Μοντέλο','')} "
                      f"{row.get('Ηλικία','')} {row.get('Προτεινόμενη χρήση','')}")
     if 'KIDDOBOO' in blob or 'RIDE FLASH' in blob or 'KIDS' in blob or 'ΠΑΙΔ' in blob:
         return True
     spd = _esc_norm(row.get('Μέγιστη Ταχύτητα', ''))
     if spd.startswith('ΕΩΣ 9') or spd.startswith('8 KM') or spd.startswith('9 KM'):
+        return True
+    w = _esc_num(row.get('Μέγιστο Βάρος Αναβάτη', ''))
+    if w is not None and w <= ESCOOTER_KIDS_WEIGHT_KG:
         return True
     return False
 
@@ -19045,9 +19071,11 @@ def _esc_base_scoring(pool):
     return pool
 
 
-def _esc_score_accessory(pool, role_key, tbrand, t_is_kids, notes):
+def _esc_score_accessory(pool, role_key, tbrand, t_is_kids, notes, tprice, ttier):
     """Score an accessory role pool: base (stock+sales) + brand-ecosystem boost
-    + scooter-tag boost + (helmets) kids/adult affinity."""
+    + scooter-tag boost + (helmets) kids/adult affinity + PRICE-proximity to
+    the trigger's tier + an over-budget sink. The price terms are what make two
+    different-priced scooters surface different items within the same role."""
     if pool.empty:
         return pool
     pool = _esc_base_scoring(pool.copy())
@@ -19072,6 +19100,25 @@ def _esc_score_accessory(pool, role_key, tbrand, t_is_kids, notes):
         notes.append(f"  ✓ Kids/adult helmet affinity (trigger "
                      f"{'KIDS' if t_is_kids else 'ADULT'}): "
                      f"{int(match.sum())} match (+{ESCOOTER_S_KIDS_MATCH:,})")
+
+    # ── PRICE proximity to the trigger tier (the differentiator) ──────────
+    ap = pool['_ap'] if '_ap' in pool.columns else pd.Series(0.0, index=pool.index)
+    if ttier == 2:        # Premium scooter → prefer the pricier (better) item.
+        pool['Final_Score'] += ap * ESCOOTER_S_PRICE_FIT_FACTOR
+        notes.append(f"  ⚖ Price-fit: PREMIUM trigger → dearer item ranks first")
+    elif ttier == 0:      # Entry scooter → prefer the cheaper item.
+        pool['Final_Score'] -= ap * ESCOOTER_S_PRICE_FIT_FACTOR
+        notes.append(f"  ⚖ Price-fit: ENTRY trigger → cheaper item ranks first")
+    else:                 # Mid scooter → prefer a mid-priced (~€25) item.
+        pool['Final_Score'] -= (ap - ESCOOTER_PRICE_FIT_MID_EUR).abs() * (ESCOOTER_S_PRICE_FIT_FACTOR / 2)
+        notes.append(f"  ⚖ Price-fit: MID trigger → ~€{ESCOOTER_PRICE_FIT_MID_EUR} item ranks first")
+
+    # Over-budget sink: an accessory dearer than the scooter never leads.
+    over = ap > float(tprice or 0)
+    pool.loc[over, 'Final_Score'] += ESCOOTER_S_OVER_BUDGET
+    if over.any():
+        notes.append(f"  ✗ Over-budget (>€{float(tprice or 0):.0f}): "
+                     f"{int(over.sum())} demoted")
 
     return pool.sort_values('Final_Score', ascending=False)
 
@@ -19178,6 +19225,8 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
         rr['_acc_role'] = role
         kept_rows.append(rr)
     acc = pd.DataFrame(kept_rows) if kept_rows else pd.DataFrame(columns=acc_all.columns)
+    if not acc.empty:
+        acc['_ap'] = acc['LIST PRICE'].apply(parse_euro_price) if 'LIST PRICE' in acc.columns else 0.0
     gate_notes.append(f"  → kept {len(acc)} / {len(acc_all)} accessories "
                       f"({dropped} dropped)")
     diag.append(("4. Gated accessories", len(acc), f"{dropped} dropped by hard gates"))
@@ -19196,7 +19245,7 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
                 pools[rank] = (role_label, pd.DataFrame(), max_r1, max_total, notes)
                 continue
             notes.append(f"  Role pool size: {len(sub)}")
-            scored = _esc_score_accessory(sub, role_key, tbrand, t_is_kids, notes)
+            scored = _esc_score_accessory(sub, role_key, tbrand, t_is_kids, notes, tprice, ttier)
         pools[rank] = (role_label, scored, max_r1, max_total, notes)
         diag.append((f"Pool {rank} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
