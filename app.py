@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.59.1-2026-06-10"
+APP_BUILD = "parquet-v28.60.1-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.59.1 — Ανεμιστήρες: μέγιστο ένας συμπληρωματικός ανεμιστήρας στο καρουζέλ· smart-plug όταν λείπει τηλεχειριστήριο.
+        🟢 Engine v28.60.1 — Ηλεκτρικά Πατίνια: αξεσουάρ & ασφάλεια με hard συμβατότητα ανά brand/μοντέλο· φορτιστής κλειδωμένος στο brand.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1231,6 +1231,84 @@ FAN_S_PRICE_ONE_OFF   =   70_000   # ±1 price tier
 FAN_S_COMBO_REDUNDANT = -500_000   # Trigger already purifies → demote fan+purifier combos
                                    # (must outweigh BRAND_MATCH so a dedicated purifier wins)
 FAN_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 E-SCOOTERS CONFIG — Ηλεκτρικά Πατίνια — v28.60
+# ═════════════════════════════════════════════════════════════
+# Data audited 2026-06-11 (Spare sheet, Home file, Level 2 = 'eMobility'):
+#   • 47 trigger SKUs (Hierarchy = 'E-Scooters'): SEGWAY 11, XIAOMI 9,
+#     URBANGLIDE 8, NAVEE 8, EGOBOO 5, KIDDOBOO 4, SHARP 1. €119–2099, med €499.
+#   • 5 of those are KIDS scooters (Kiddoboo ×4, Urbanglide Ride Flash) — they
+#     pair with the kids LED helmets, not adult gear.
+#   • Recommendable accessory universe (18 SKUs) lives in three sibling
+#     hierarchies under the SAME E-Scooter branch (Hierarchy ID 7416000100…):
+#       E-Scooter Various Acc (14), E-Scooter Safety Gear (3),
+#       E-Scooter Accessories (1).
+#   • Co-purchase History is unusable (almost no scooter baskets) → this is a
+#     COMPATIBILITY + ROLE-COVERAGE problem, not a deep-spec one (a scooter and
+#     a phone-mount share no specs to match). So the engine is HYBRID:
+#       (1) HARD gates  → brand/model-locked parts (chargers, model-named
+#           accessories) drop unless the trigger brand/model matches
+#           (printer-cartridge principle); wrong-domain items tagged ONLY
+#           για E-Bikes / Hoverboards are dropped (helmets stay universal).
+#       (2) ROLE round-robin → helmet → phone-mount → carry-bag → tyre-pump →
+#           charger → generic accessory → trade-up scooter (capped backfill).
+#       (3) brand-ecosystem boost + sales tiebreak rank WITHIN each role.
+#   • The Xiaomi "Fast Charge 2 268W για Electric Scooter 6 Max, 6 Ultra &
+#     Σειρά 7" is the canonical hard-gate: a non-Xiaomi (or non-6Max/6Ultra/
+#     S7) trigger must NEVER see it. Phone-mounts/bags clamp any handlebar, so
+#     they are brand-PREFERRED (ecosystem boost), not hard-locked.
+#   • Accessory pool is thin (~14 survive the gate), so SIBLING SCOOTERS are a
+#     CAPPED trade-up backfill (same-hierarchy is intentional here, like Manga)
+#     guaranteeing the carousel always reaches 10 slots — accessories lead.
+ESCOOTER_TRIGGER_HIERARCHY = "E-Scooters"
+ESCOOTER_ACC_HIERARCHIES = {
+    "E-Scooter Various Acc", "E-Scooter Safety Gear", "E-Scooter Accessories",
+}
+ESCOOTER_L2 = "eMobility"
+
+# 🧪 Optional test-list filter (leave empty to show ALL 47 scooters).
+ESCOOTER_TEST_SKUS = set()
+
+ESCOOTER_SLOT_TARGET = 10
+
+# Price tiers tuned to the observed scooter range (€119–2099, median €499).
+ESCOOTER_TIER_THRESHOLDS = {'Mid': 400, 'Premium': 800}
+ESCOOTER_TIER_NAMES = ['Entry', 'Mid', 'Premium']
+
+# (rank, role_label, role_key, max_round_1, max_total) — accessory roles lead;
+# the trade-up scooter is a low-priority CAPPED backfill so the carousel always
+# reaches 10 without ever looking like a "similar products" rail.
+ESCOOTER_PRIORITY = [
+    (1, 'Κράνος & Προστασία',      'HELMET',  1, 2),
+    (2, 'Βάση Κινητού',            'MOUNT',   1, 2),
+    (3, 'Τσάντα Μεταφοράς',        'BAG',     1, 2),
+    (4, 'Τρόμπα / Αεροσυμπιεστής', 'PUMP',    1, 1),
+    (5, 'Φορτιστής & Ανταλλακτικά','CHARGER', 1, 1),
+    (6, 'Αξεσουάρ Πατινιού',       'GENERIC', 1, 2),
+    (7, 'Πατίνι Αναβάθμισης',      'SCOOTER', 1, 3),
+]
+
+# Static per-role marketing copy.
+ESCOOTER_MARKETING_COPY = {
+    'Κράνος & Προστασία':       "Προστάτεψε το κεφάλι σου — κράνος για ασφαλείς διαδρομές.",
+    'Βάση Κινητού':             "Πλοηγήσου με το κινητό στο τιμόνι — σταθερή βάση στήριξης.",
+    'Τσάντα Μεταφοράς':         "Μετέφερε και αποθήκευσε το πατίνι σου με ασφάλεια.",
+    'Τρόμπα / Αεροσυμπιεστής':  "Κράτα τα λάστιχα στη σωστή πίεση — φορητή τρόμπα αέρα.",
+    'Φορτιστής & Ανταλλακτικά': "Γρήγορη φόρτιση — μείνε πάντα έτοιμος για την επόμενη βόλτα.",
+    'Αξεσουάρ Πατινιού':        "Αναβάθμισε την εμπειρία οδήγησης με χρήσιμα αξεσουάρ.",
+    'Πατίνι Αναβάθμισης':       "Δες ένα ανώτερο μοντέλο — περισσότερη αυτονομία και ισχύ.",
+}
+
+# Scoring weights (same order of magnitude as the Fans / DH engines).
+ESCOOTER_S_AVAILABILITY    =  100_000   # In-stock boost
+ESCOOTER_S_BRAND_MATCH     =  400_000   # Accessory brand == trigger brand (ecosystem)
+ESCOOTER_S_KIDS_MATCH      =  250_000   # Kids helmet ↔ kids scooter (or adult↔adult)
+ESCOOTER_S_SCOOTER_TAG     =  120_000   # Accessory explicitly tagged για Kick-Scooters
+ESCOOTER_S_PRICE_SAME_TIER =  150_000   # Trade-up scooter in the same price tier
+ESCOOTER_S_PRICE_STEPUP    =  200_000   # Trade-up scooter exactly one tier above (upsell)
+ESCOOTER_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
 
 
 def get_clima_tier_by_btu(price, btu):
@@ -9145,6 +9223,11 @@ L1_CATEGORIES = [
         "label": "Gaming",
         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='8' width='20' height='10' rx='5' ry='5'/%3E%3Cline x1='7' y1='13' x2='9' y2='13'/%3E%3Cline x1='8' y1='12' x2='8' y2='14'/%3E%3Ccircle cx='15.5' cy='12' r='0.8'/%3E%3Ccircle cx='17.5' cy='14' r='0.8'/%3E%3C/svg%3E",
     },
+    {
+        "key": "eMobility",
+        "label": "Ηλεκτρική\nΜετακίνηση",
+        "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5.5' cy='18' r='2.5'/%3E%3Ccircle cx='18.5' cy='18' r='2.5'/%3E%3Cpath d='M8 18h8'/%3E%3Cpath d='M18.5 18 14 6h-3'/%3E%3Cpath d='M14 6 7 18'/%3E%3C/svg%3E",
+    },
 ]
 
 L2_CHILDREN = {
@@ -9313,6 +9396,10 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='14' rx='2'/%3E%3Cpath d='M7 8v6M4 11h6'/%3E%3Ccircle cx='16' cy='10' r='1'/%3E%3Ccircle cx='19' cy='13' r='1'/%3E%3Ccircle cx='16' cy='13' r='1'/%3E%3Cpath d='M8 21h8'/%3E%3C/svg%3E"},
         {"key": "Controllers", "label": "Χειριστήρια",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 10h.01M10 8v4M8 10h4'/%3E%3Ccircle cx='15.5' cy='10' r='0.8'/%3E%3Ccircle cx='18' cy='12' r='0.8'/%3E%3Cpath d='M17.5 5.5A6.5 6.5 0 0 1 22 12l-1 6a2.5 2.5 0 0 1-4.6 1L14 15h-4l-2.4 4A2.5 2.5 0 0 1 3 18l-1-6a6.5 6.5 0 0 1 4.5-6.5A20 20 0 0 1 12 5a20 20 0 0 1 5.5.5z'/%3E%3C/svg%3E"},
+    ],
+    "eMobility": [
+        {"key": "E-Scooters", "label": "Ηλεκτρικά\nΠατίνια",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='19' r='2'/%3E%3Ccircle cx='19' cy='19' r='2'/%3E%3Cpath d='M7 19h9l-2-13h-3'/%3E%3Cpath d='M16 19 8.5 9'/%3E%3C/svg%3E"},
     ],
 }
 
@@ -9920,6 +10007,35 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ανεμιστήρα</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", fan_pool['Title'].unique(), label_visibility="collapsed", key="fan_sel")
                 trigger = fan_pool[fan_pool['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "E-Scooters":
+        # v28.60 — Ηλεκτρικά Πατίνια. Triggers live in the Spare sheet (Home
+        # file), Level 2 = 'eMobility', Hierarchy = 'E-Scooters'. The same
+        # frame also carries the accessory/safety sibling hierarchies the
+        # engine recommends from, so the picker and engine share df_spare.
+        if df_spare is None or df_spare.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Ηλεκτρικά Πατίνια (sheet Spare/eMobility). "
+                f"Sheets loaded: {', '.join(sheets_loaded)}"
+            )
+        else:
+            l2_clean = df_spare['Level 2'].fillna('').astype(str).str.strip() \
+                if 'Level 2' in df_spare.columns else pd.Series([''] * len(df_spare), index=df_spare.index)
+            hier_clean = df_spare['Hierarchy'].fillna('').astype(str).str.strip()
+            sc_pool = df_spare[(l2_clean == ESCOOTER_L2) &
+                               (hier_clean == ESCOOTER_TRIGGER_HIERARCHY)].copy()
+
+            # 🧪 Optional test-list filter (leave ESCOOTER_TEST_SKUS empty for all)
+            if ESCOOTER_TEST_SKUS and not sc_pool.empty:
+                mat_clean = sc_pool['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                sc_pool = sc_pool[mat_clean.isin(ESCOOTER_TEST_SKUS)]
+
+            if sc_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Ηλεκτρικά Πατίνια στο sheet Spare (eMobility).")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ηλεκτρικό Πατίνι</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", sc_pool['Title'].unique(), label_visibility="collapsed", key="escooter_sel")
+                trigger = sc_pool[sc_pool['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster == "TVs":
         if df_products.empty: st.stop()
@@ -18759,6 +18875,386 @@ def run_fans_engine(trigger, df_air, df_spare, df_products, df_history):
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_num}/{FAN_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 E-SCOOTERS ENGINE — Ηλεκτρικά Πατίνια — v28.60
+# ═════════════════════════════════════════════════════════════
+# Hybrid engine: HARD compatibility gates (brand/model-locked parts +
+# wrong-domain drops) → ROLE round-robin → brand-ecosystem + sales scoring →
+# CAPPED trade-up scooter backfill so the carousel always reaches 10 slots.
+# Co-purchase history is unusable for scooters, so the depth comes from the
+# gate + role layer, NOT spec-similarity (a scooter & a phone-mount share no
+# specs). See ESCOOTER CONFIG for the data audit.
+
+def _esc_norm(s) -> str:
+    """NFD accent-strip + upper. Greek tonos / Latin-Greek lookalikes are a
+    known trap in this data, so all role/compat matching goes through here."""
+    s = str(s or '')
+    if s.strip().lower() in ('nan', 'none'):
+        return ''
+    s = unicodedata.normalize('NFD', s)
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+    return s.upper().strip()
+
+
+def _esc_price_tier(price: float) -> int:
+    """0 = Entry (<€400), 1 = Mid (€400-800), 2 = Premium (>€800)."""
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        return 0
+    if p >= ESCOOTER_TIER_THRESHOLDS['Premium']:
+        return 2
+    if p >= ESCOOTER_TIER_THRESHOLDS['Mid']:
+        return 1
+    return 0
+
+
+def _esc_brand(row) -> str:
+    """Normalised brand. Κατασκευαστής first (populated on scooters), with a
+    Title-parse fallback for accessory rows where it is blank."""
+    b = _esc_norm(row.get('Κατασκευαστής', ''))
+    if b:
+        return b
+    # Title fallback — first token is almost always the brand on this catalog.
+    t = _esc_norm(row.get('Title', ''))
+    return t.split(' ')[0] if t else ''
+
+
+def _esc_is_kids(row) -> bool:
+    """Kids scooter / kids gear detection. Kiddoboo is kids-only; Urbanglide
+    'Ride Flash' is the kids model; very low top speed (≤9 km/h) or a child
+    age band also flags kids. Used to pair kids helmets with kids scooters."""
+    blob = _esc_norm(f"{row.get('Title','')} {row.get('Μοντέλο','')} "
+                     f"{row.get('Ηλικία','')} {row.get('Προτεινόμενη χρήση','')}")
+    if 'KIDDOBOO' in blob or 'RIDE FLASH' in blob or 'KIDS' in blob or 'ΠΑΙΔ' in blob:
+        return True
+    spd = _esc_norm(row.get('Μέγιστη Ταχύτητα', ''))
+    if spd.startswith('ΕΩΣ 9') or spd.startswith('8 KM') or spd.startswith('9 KM'):
+        return True
+    return False
+
+
+def _esc_compat_tags(row) -> set:
+    """Parse the domain-compatibility tags from 'Προτεινόμενη χρήση'
+    ('για E-Bikes;για Kick-Scooters' → {'SCOOTER','EBIKE'}). Empty when blank
+    (those accessories — e.g. the Xiaomi air pumps — are treated as universal)."""
+    raw = _esc_norm(row.get('Προτεινόμενη χρήση', ''))
+    raw2 = _esc_norm(row.get('Κατηγορία', ''))
+    hay = f"{raw} {raw2}"
+    tags = set()
+    if 'KICK-SCOOTER' in hay or 'KICK SCOOTER' in hay or 'SCOOTER' in hay:
+        tags.add('SCOOTER')
+    if 'E-BIKE' in hay or 'E BIKE' in hay or 'EBIKE' in hay:
+        tags.add('EBIKE')
+    if 'HOVERBOARD' in hay:
+        tags.add('HOVERBOARD')
+    return tags
+
+
+def _esc_acc_role(row) -> str:
+    """Classify an accessory into one cross-sell role from its Title/Hierarchy.
+    HELMET / MOUNT / BAG / PUMP / CHARGER / GENERIC."""
+    hier = _esc_norm(row.get('Hierarchy', ''))
+    title = _esc_norm(row.get('Title', ''))
+    cat = _esc_norm(row.get('Κατηγορια', '')) or _esc_norm(row.get('Κατηγορία', ''))
+    if 'SAFETY GEAR' in hier or 'ΚΡΑΝΟΣ' in title or 'HELMET' in title or 'ΠΡΟΣΤΑ' in cat:
+        return 'HELMET'
+    if 'ΦΟΡΤΙΣΤ' in title or 'CHARGER' in title or 'FAST CHARGE' in title:
+        return 'CHARGER'
+    if 'ΒΑΣΗ' in title or 'MOUNT' in title or 'GEARLOCK' in title or 'ΣΤΗΡΙΞ' in title:
+        return 'MOUNT'
+    if 'ΘΗΚΗ' in title or 'ΤΣΑΝΤΑ' in title or 'BAG' in title or 'ΜΕΤΑΦΟΡ' in title:
+        return 'BAG'
+    if 'ΤΡΟΜΠΑ' in title or 'ΑΕΡΟΣΥΜΠΙΕΣΤ' in title or 'COMPRESSOR' in title or 'ΑΕΡΑ' in title:
+        return 'PUMP'
+    return 'GENERIC'
+
+
+# Roles that clamp/fit any handlebar → brand is PREFERRED, not hard-locked.
+# Only CHARGER (and model-named parts) hard-gate to the trigger brand/model.
+_ESC_BRAND_LOCKED_ROLES = {'CHARGER'}
+
+
+def _esc_model_family(row) -> str:
+    """Coarse Xiaomi model-family token for the charger hard-gate. The 268W
+    charger names 'Electric Scooter 6 Max, 6 Ultra & Σειρά 7' — so a 6 Lite /
+    6 / 6 Pro trigger must NOT match it. Returns '' when not a Xiaomi 6/7."""
+    blob = _esc_norm(f"{row.get('Title','')} {row.get('Μοντέλο','')}")
+    if 'XIAOMI' not in _esc_brand(row) and 'XIAOMI' not in blob:
+        return ''
+    # Order matters: check the more specific tokens first.
+    for tok in ('6 ULTRA', '6 MAX', '6 PRO', '6 LITE', 'SERIES 7', 'ΣΕΙΡΑ 7', ' 7'):
+        if tok in blob:
+            return tok.strip()
+    if ' 6' in blob or 'SCOOTER 6' in blob:
+        return '6'
+    return ''
+
+
+def _esc_charger_allows(acc_row, tbrand, tmodel_blob) -> bool:
+    """Hard-gate for a brand-locked charger/part: the accessory brand must
+    equal the trigger brand AND, if the accessory names specific models, the
+    trigger must be one of them (printer-cartridge principle)."""
+    abrand = _esc_brand(acc_row)
+    if abrand and tbrand and abrand != tbrand:
+        return False
+    # Model-family lock: the charger title enumerates the models it fits.
+    atitle = _esc_norm(acc_row.get('Title', ''))
+    named = [tok for tok in ('6 ULTRA', '6 MAX', 'SERIES 7', 'ΣΕΙΡΑ 7')
+             if tok in atitle]
+    if named:
+        return any(tok in tmodel_blob for tok in named)
+    return True
+
+
+def _esc_base_scoring(pool):
+    """Shared base: in-stock boost + sales tiebreaker."""
+    pool['Final_Score'] = 0.0
+    if 'AVAILABILITY' in pool.columns:
+        pool.loc[pool['AVAILABILITY'] == 'Άμεσα Διαθέσιμο', 'Final_Score'] += ESCOOTER_S_AVAILABILITY
+    pool['Final_Score'] += pool['Sales_Tiebreaker'].fillna(0) * ESCOOTER_S_SALES_FACTOR
+    return pool
+
+
+def _esc_score_accessory(pool, role_key, tbrand, t_is_kids, notes):
+    """Score an accessory role pool: base (stock+sales) + brand-ecosystem boost
+    + scooter-tag boost + (helmets) kids/adult affinity."""
+    if pool.empty:
+        return pool
+    pool = _esc_base_scoring(pool.copy())
+
+    # Brand-ecosystem affinity (a Xiaomi pump ranks first on a Xiaomi scooter).
+    abrand = pool.apply(_esc_brand, axis=1)
+    same_brand = (abrand == tbrand) & (tbrand != '')
+    pool.loc[same_brand, 'Final_Score'] += ESCOOTER_S_BRAND_MATCH
+    if same_brand.any():
+        notes.append(f"  ✓ Brand ecosystem ({tbrand}): {int(same_brand.sum())} "
+                     f"(+{ESCOOTER_S_BRAND_MATCH:,})")
+
+    # Explicit scooter compatibility tag is a positive signal.
+    tagged = pool.apply(lambda r: 'SCOOTER' in _esc_compat_tags(r), axis=1)
+    pool.loc[tagged, 'Final_Score'] += ESCOOTER_S_SCOOTER_TAG
+
+    # Helmet kids/adult affinity — a kids scooter wants the kids LED helmet.
+    if role_key == 'HELMET':
+        acc_kids = pool.apply(_esc_is_kids, axis=1)
+        match = acc_kids == t_is_kids
+        pool.loc[match, 'Final_Score'] += ESCOOTER_S_KIDS_MATCH
+        notes.append(f"  ✓ Kids/adult helmet affinity (trigger "
+                     f"{'KIDS' if t_is_kids else 'ADULT'}): "
+                     f"{int(match.sum())} match (+{ESCOOTER_S_KIDS_MATCH:,})")
+
+    return pool.sort_values('Final_Score', ascending=False)
+
+
+def _esc_score_scooters(pool, tbrand, ttier, notes):
+    """Trade-up scooter backfill: same-brand first (ecosystem), then a one-tier
+    step-up (upsell) over same-tier, in-stock, sales. Capped in the priority."""
+    if pool.empty:
+        return pool
+    pool = _esc_base_scoring(pool.copy())
+    sbrand = pool.apply(_esc_brand, axis=1)
+    same_brand = (sbrand == tbrand) & (tbrand != '')
+    pool.loc[same_brand, 'Final_Score'] += ESCOOTER_S_BRAND_MATCH
+    cand_tier = pool['_p'].apply(_esc_price_tier)
+    pool.loc[cand_tier == ttier + 1, 'Final_Score'] += ESCOOTER_S_PRICE_STEPUP
+    pool.loc[cand_tier == ttier, 'Final_Score'] += ESCOOTER_S_PRICE_SAME_TIER
+    notes.append(f"  Trade-up scooters: {len(pool)} | same-brand "
+                 f"{int(same_brand.sum())} | step-up "
+                 f"{int((cand_tier == ttier + 1).sum())}")
+    return pool.sort_values('Final_Score', ascending=False)
+
+
+def run_escooter_engine(trigger, df_spare, df_history=None):
+    """Build exactly 10 cross-sell slots for an electric-scooter trigger.
+    HYBRID: hard brand/model/domain gates (printer-cartridge) → role
+    round-robin (helmet → mount → bag → pump → charger → generic → trade-up
+    scooter) → brand-ecosystem + sales scoring → mandatory 10/10 backfill."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    tbrand = _esc_brand(trigger)
+    tprice = parse_euro_price(trigger.get('LIST PRICE', 0))
+    ttier = _esc_price_tier(tprice)
+    tier_name = ESCOOTER_TIER_NAMES[ttier]
+    t_is_kids = _esc_is_kids(trigger)
+    tmodel_blob = _esc_norm(f"{trigger.get('Title','')} {trigger.get('Μοντέλο','')}")
+    t_model_family = _esc_model_family(trigger)
+
+    diag.append(("0. Trigger",
+                 f"{tbrand or '—'} €{tprice:.0f}",
+                 f"tier={tier_name} | kids={t_is_kids} | "
+                 f"model_family={t_model_family or '—'}"))
+
+    if df_spare is None or df_spare.empty:
+        diag.append(("ERROR", 0, "Spare sheet empty — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    # ── eMobility universe (trigger excluded, deduped) ────────────────────
+    l2 = df_spare['Level 2'].fillna('').astype(str).str.strip() \
+        if 'Level 2' in df_spare.columns else pd.Series([''] * len(df_spare), index=df_spare.index)
+    emo = df_spare[l2 == ESCOOTER_L2].copy()
+    emo = emo[emo['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    emo['Sales_Tiebreaker'] = pd.to_numeric(emo.get('Sum of Sales', 0), errors='coerce').fillna(0)
+    emo['_p'] = emo['LIST PRICE'].apply(parse_euro_price) if 'LIST PRICE' in emo.columns else 0.0
+    hier = emo['Hierarchy'].fillna('').astype(str).str.strip()
+    diag.append(("1. Base (eMobility)", len(emo), "Level 2=eMobility, trigger excluded"))
+
+    acc_all = emo[hier.isin(ESCOOTER_ACC_HIERARCHIES)].copy()
+    scooters = emo[hier == ESCOOTER_TRIGGER_HIERARCHY].copy()
+    diag.append(("2. Accessory pool", len(acc_all),
+                 "E-Scooter Various Acc / Safety Gear / Accessories"))
+    diag.append(("3. Trade-up scooters", len(scooters), "E-Scooters (capped backfill)"))
+
+    # ── HARD GATES on the accessory pool (printer-cartridge + wrong-domain) ─
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    kept_rows, dropped = [], 0
+    for _, r in acc_all.iterrows():
+        role = _esc_acc_role(r)
+        tags = _esc_compat_tags(r)
+        # (a) Brand/model-locked parts (chargers): require brand (+model) match.
+        if role in _ESC_BRAND_LOCKED_ROLES:
+            if not _esc_charger_allows(r, tbrand, tmodel_blob):
+                dropped += 1
+                gate_notes.append(f"  ✗ DROP brand-lock [{_esc_brand(r)}] "
+                                  f"{str(r.get('Title',''))[:55]}")
+                continue
+        # (b) Wrong-domain: tagged ONLY e-bike/hoverboard with no scooter tag.
+        #     Helmets are universal safety → never domain-dropped.
+        elif role != 'HELMET' and tags and 'SCOOTER' not in tags:
+            dropped += 1
+            gate_notes.append(f"  ✗ DROP wrong-domain {sorted(tags)} "
+                              f"{str(r.get('Title',''))[:55]}")
+            continue
+        rr = r.copy()
+        rr['_acc_role'] = role
+        kept_rows.append(rr)
+    acc = pd.DataFrame(kept_rows) if kept_rows else pd.DataFrame(columns=acc_all.columns)
+    gate_notes.append(f"  → kept {len(acc)} / {len(acc_all)} accessories "
+                      f"({dropped} dropped)")
+    diag.append(("4. Gated accessories", len(acc), f"{dropped} dropped by hard gates"))
+
+    # ── Build & score each role pool ──────────────────────────────────────
+    pools = {}  # rank → (role_label, scored_df, max_r1, max_total, notes)
+    for rank, role_label, role_key, max_r1, max_total in ESCOOTER_PRIORITY:
+        notes = [f"=== Priority {rank}: {role_label} ({role_key}) "
+                 f"| max_round_1={max_r1} | max_total={max_total} ==="]
+        if role_key == 'SCOOTER':
+            scored = _esc_score_scooters(scooters, tbrand, ttier, notes)
+        else:
+            sub = acc[acc['_acc_role'] == role_key].copy() if not acc.empty else pd.DataFrame()
+            if sub.empty:
+                notes.append("  ⚠ No candidates for this role — slot filled from other pools")
+                pools[rank] = (role_label, pd.DataFrame(), max_r1, max_total, notes)
+                continue
+            notes.append(f"  Role pool size: {len(sub)}")
+            scored = _esc_score_accessory(sub, role_key, tbrand, t_is_kids, notes)
+        pools[rank] = (role_label, scored, max_r1, max_total, notes)
+        diag.append((f"Pool {rank} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    # ── Universal backfill pool: any gated accessory then any scooter, by
+    #    score — guarantees the carousel reaches 10 even on thin triggers. ──
+    backfill_frames = []
+    if not acc.empty:
+        backfill_frames.append(_esc_base_scoring(acc.copy()))
+    if not scooters.empty:
+        backfill_frames.append(_esc_score_scooters(scooters, tbrand, ttier, []))
+    backfill = (pd.concat(backfill_frames, ignore_index=True)
+                  .sort_values('Final_Score', ascending=False)
+                if backfill_frames else pd.DataFrame())
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used_materials = {tm}
+    pool_cursors = {rank: 0 for rank in pools}
+    pool_taken = {rank: 0 for rank in pools}
+    slot_num = 0
+    round_idx = 0
+
+    while slot_num < ESCOOTER_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, notes) in pools.items():
+            if slot_num >= ESCOOTER_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and pool_taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - pool_taken[rank])
+            cursor = pool_cursors[rank]
+            taken_this_pass = 0
+            while taken_this_pass < take_n and cursor < len(scored) \
+                    and slot_num < ESCOOTER_SLOT_TARGET:
+                row = scored.iloc[cursor]
+                cursor += 1
+                if row['Material'] in used_materials:
+                    continue
+                slot_num += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_num
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = ESCOOTER_MARKETING_COPY.get(role_label, "Ιδανική επιλογή!")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used_materials.add(row['Material'])
+                taken_this_pass += 1
+                pool_taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_num, []).append(
+                    f"Round {round_idx} | Pool '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('Title', ''))[:70]}")
+            pool_cursors[rank] = cursor
+        if not progress:
+            break
+
+    # ── Mandatory backfill: fill any remaining slots to 10 ────────────────
+    if slot_num < ESCOOTER_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_num >= ESCOOTER_SLOT_TARGET:
+                break
+            if row['Material'] in used_materials:
+                continue
+            slot_num += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_num
+            role_label = ('Πατίνι Αναβάθμισης'
+                          if str(row.get('Hierarchy', '')).strip() == ESCOOTER_TRIGGER_HIERARCHY
+                          else 'Αξεσουάρ Πατινιού')
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = ESCOOTER_MARKETING_COPY.get(role_label, "Ιδανική επιλογή!")
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used_materials.add(row['Material'])
+            slot_notes.setdefault(slot_num, []).append(
+                f"BACKFILL | '{role_label}' | "
+                f"{str(row.get('Title', ''))[:70]}")
+
+    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
+    pool_diag_notes = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, notes) in pools.items():
+        pool_diag_notes.extend(notes)
+        pool_diag_notes.append(
+            f"  → consumed {pool_taken[rank]} / "
+            f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag_notes.append("")
+    slot_notes[0] = pool_diag_notes
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_num}/{ESCOOTER_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -33472,6 +33968,17 @@ elif active_cluster == "Fans":
     recs, diag, slot_notes, full_candidates = run_fans_engine(
         trigger, df_air, df_spare, df_products, df_history)
     slot_diag = []
+elif active_cluster == "E-Scooters":
+    # v28.60 — Ηλεκτρικά Πατίνια cross-sell. Trigger + accessory/safety pools
+    # all live in the Spare sheet (Home file), Level 2 = 'eMobility'. HYBRID:
+    # hard brand/model/domain gates (the Xiaomi 268W charger is locked to its
+    # named models; E-Bike/Hoverboard-only items are dropped) → role
+    # round-robin (helmet → mount → bag → pump → charger → generic) →
+    # brand-ecosystem + sales scoring → CAPPED trade-up scooter backfill so
+    # the carousel always reaches 10 with accessories leading.
+    recs, diag, slot_notes, full_candidates = run_escooter_engine(
+        trigger, df_spare, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -33661,6 +34168,10 @@ if not recs.empty:
             # Trigger-aware per-row copy (missing-remote smart-plug framing,
             # complement-type naming); falls back to the static per-role dict.
             marketing_text = str(r.get('Marketing_Copy', FAN_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
+        elif active_cluster == "E-Scooters":
+            # Per-role accessory/trade-up copy (static dict; the engine already
+            # stamps Marketing_Copy onto each row).
+            marketing_text = str(r.get('Marketing_Copy', ESCOOTER_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -33696,6 +34207,8 @@ if not recs.empty:
         header_text = "Ολοκλήρωσε το υγιεινό σου σπίτι"
     elif active_cluster == "Fans":
         header_text = "Δροσιά σε όλο το σπίτι"
+    elif active_cluster == "E-Scooters":
+        header_text = "Όλα για το πατίνι σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -33849,6 +34362,22 @@ with st.expander("⚙️ System Diagnostics"):
             f"**Colour(s):** `{t_col_fn}` | **Tier:** `{FAN_TIER_NAMES[_fan_price_tier(t_pr_fn)]}` "
             f"(€{t_pr_fn:.0f}) | **Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
+    elif active_cluster == "E-Scooters":
+        # v28.60 — scooter diagnostic surface: the signals the engine gates &
+        # ranks on (brand ecosystem / model family / kids segment / tier).
+        t_br_sc = _esc_brand(trigger)
+        t_pr_sc = parse_euro_price(trigger.get('LIST PRICE', 0))
+        t_kids_sc = _esc_is_kids(trigger)
+        t_mf_sc = _esc_model_family(trigger) or '—'
+        st.markdown(
+            f"**Brand:** `{t_br_sc}` | **Model family:** `{t_mf_sc}` | "
+            f"**Segment:** `{'Παιδικό' if t_kids_sc else 'Ενηλίκων'}`"
+        )
+        st.markdown(
+            f"**Tier:** `{ESCOOTER_TIER_NAMES[_esc_price_tier(t_pr_sc)]}` (€{t_pr_sc:.0f}) | "
+            f"**Model:** `{str(trigger.get('Μοντέλο','')).strip()}` | "
+            f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
 
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
@@ -33894,6 +34423,14 @@ with st.expander("⚙️ System Diagnostics"):
                               'Κατασκευαστής','Τύπος συσκευής','Είδος',
                               'Τηλεχειριστήριο','Χρώμα','Επίπεδα ταχύτητας',
                               'Ισχύς','Διάμετρος','Περιστροφή',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "E-Scooters":
+        # v28.60 — scooter attributes: brand + model drive the hard gates;
+        # speed/age flag the kids segment; price sets the trade-up tier.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Μοντέλο','Μέγιστη Ταχύτητα',
+                              'Αυτονομία','Ισχύς Κινητήρα ≡','Μέγιστο Βάρος Αναβάτη',
+                              'Ηλικία','Προτεινόμενη χρήση','Συμβατό μοντέλο',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Greek School Books":
         # v28.30 — school book attributes: class + subject + publisher
