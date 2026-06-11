@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.1-2026-06-11"
+APP_BUILD = "parquet-v28.61.2-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.1 — Σχολικές Τσάντες: character-match (Frozen→Frozen κασετίνα/παγούρι) + ηλικία (νήπιο/δημοτικό/εφηβικό) + τιμή· σχολικό kit 10 ειδών, καμία 2η τσάντα.
+        🟢 Engine v28.61.2 — Σχολικές Τσάντες: character-match + χρωματικός συνδυασμός (μαύρη τσάντα→μαύρα/ουδέτερα, όχι teal) + ηλικία + τιμή· σχολικό kit 10 ειδών, καμία 2η τσάντα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1577,6 +1577,39 @@ SCHOOLBAG_S_AVAIL         =   1_000   # immediately available
 SCHOOLBAG_PRICE_W         =     400   # per-€ penalty on price distance
 SCHOOLBAG_PRICE_FLOOR     =      25   # companions up to €25 always price-OK
 SCHOOLBAG_PRICE_CAP_MULT  =     1.1   # companion ≤ bag×1.1 (else dropped)
+
+# ── COLOUR COORDINATION (v28.61.2) ────────────────────────────────────────
+# A black Eastpak was getting a teal "Polar Blue" κασετίνα because brand-match
+# (Eastpak→Eastpak) won and nothing pushed back on colour. We now parse the
+# colour from the bag's title and from each companion and prefer same-family
+# or NEUTRAL companions (black/grey/navy/white/beige/brown coordinate with
+# anything), penalising bright clashes (teal/pink on a black bag). Weighted
+# strongly for the OLDER/lifestyle kit; gently for kids (their catalogue is
+# bright by design and character match already dominates there).
+# Each entry: (canonical, is_neutral, [NFD-stripped UPPER substrings]).
+# ORDER MATTERS — multiword / more specific first (NAVY before BLUE, etc.).
+SCHOOLBAG_COLORS = [
+    ('NAVY',   True,  ['NAVY', 'ΝΑΥΤΙΚΟ', 'ΜΠΛΕ ΣΚΟΥΡΟ', 'MIDNIGHT', 'ΜΠΛΕ ΜΑΡΙΝ']),
+    ('BLACK',  True,  ['BLACK', 'ΜΑΥΡΟ', 'ΜΑΥΡΗ', 'ΜΑΥΡΟΣ', 'ANTHRACITE', 'ΑΝΘΡΑΚΙ']),
+    ('WHITE',  True,  ['WHITE', 'ΛΕΥΚΟ', 'ΛΕΥΚΗ', 'ΑΣΠΡΟ']),
+    ('GREY',   True,  ['GREY', 'GRAY', 'ΓΚΡΙ', 'ΓΚΡΙΖΟ', 'SILVER', 'ΑΣΗΜΙ', 'MELANGE', 'ΜΕΛΑΝΖΕ']),
+    ('BEIGE',  True,  ['BEIGE', 'ΜΠΕΖ', 'ΚΡΕΜ', 'CREAM', 'NUDE', 'ΕΚΡΟΥ', 'ECRU', 'ΧΡΥΣΟ', 'GOLD']),
+    ('BROWN',  True,  ['BROWN', 'ΚΑΦΕ', 'CAMEL', 'ΚΑΜΕΛ', 'ΛΑΔΙ', 'OLIVE', 'ΧΑΚΙ', 'KHAKI', 'ΤΑΜΠΑ']),
+    ('PINK',   False, ['PINK', 'ΡΟΖ', 'ΦΟΥΞΙΑ', 'FUCHSIA', 'ΡΟΥΖ', 'ΣΟΜΟΝ', 'SALMON', 'BUBBLEGUM']),
+    ('PURPLE', False, ['PURPLE', 'ΜΩΒ', 'ΛΙΛΑ', 'LILAC', 'VIOLET', 'ΜΩΒΕ', 'ΜΩΒΟ', 'ΜΩΒΗ']),
+    ('RED',    False, ['RED', 'ΚΟΚΚΙΝΟ', 'ΚΟΚΚΙΝΗ', 'ΜΠΟΡΝΤΟ', 'BORDEAUX', 'BURGUNDY']),
+    ('ORANGE', False, ['ORANGE', 'ΠΟΡΤΟΚΑΛΙ', 'ΚΟΡΑΛΙ', 'CORAL']),
+    ('YELLOW', False, ['YELLOW', 'ΚΙΤΡΙΝΟ', 'ΜΟΥΣΤΑΡΔΙ', 'MUSTARD']),
+    ('GREEN',  False, ['GREEN', 'ΠΡΑΣΙΝΟ', 'ΠΡΑΣΙΝΗ', 'MINT', 'ΜΕΝΤΑ', 'ΦΙΣΤΙΚΙ']),
+    ('BLUE',   False, ['POLAR BLUE', 'BLUE', 'ΜΠΛΕ', 'ΓΑΛΑΖΙΟ', 'TURQUOISE', 'ΤΙΡΚΟΥΑΖ',
+                       'TEAL', 'ΘΑΛΑΣΣΙ', 'AQUA', 'PETROL', 'ΠΕΤΡΟΛ']),
+]
+SCHOOLBAG_NEUTRAL_COLORS = {c for c, neutral, _ in SCHOOLBAG_COLORS if neutral}
+
+SCHOOLBAG_S_COLOR_MATCH      =  70_000   # companion shares the bag's colour family
+SCHOOLBAG_S_COLOR_NEUTRAL    =  35_000   # companion is a neutral → coordinates always
+SCHOOLBAG_S_COLOR_CLASH      = -45_000   # bright clash on an OLDER/lifestyle bag
+SCHOOLBAG_S_COLOR_CLASH_KIDS = -15_000   # gentler clash for the (bright) kids catalogue
 
 
 # ═════════════════════════════════════════════════════════════
@@ -19583,6 +19616,34 @@ def _scb_licence(text):
     return None
 
 
+def _scb_color(text):
+    """First colour family whose pattern appears in the (stripped) title.
+    Returns a canonical family (e.g. 'BLACK','BLUE') or None when the title
+    carries no colour word (most pens/sets) — in which case colour scoring is
+    skipped, never penalised."""
+    t = " " + _scb_strip(text) + " "
+    for canon, _neutral, pats in SCHOOLBAG_COLORS:
+        for p in pats:
+            if p in t:
+                return canon
+    return None
+
+
+def _scb_color_score(t_color, c_color, persona):
+    """Colour-coordination delta. Neutrals (black/grey/navy/white/beige/brown)
+    coordinate with anything; a same-family match is best; a different BRIGHT
+    on a bag of another colour clashes. Returns (delta, reason)."""
+    if not t_color or not c_color:
+        return 0.0, None                     # no colour info → stay neutral
+    if c_color == t_color:
+        return SCHOOLBAG_S_COLOR_MATCH, f"colour✓{c_color}"
+    if c_color in SCHOOLBAG_NEUTRAL_COLORS:
+        return SCHOOLBAG_S_COLOR_NEUTRAL, f"colour~{c_color}"
+    # companion is a BRIGHT that doesn't match the bag → clash
+    clash = SCHOOLBAG_S_COLOR_CLASH if persona == 'OLDER' else SCHOOLBAG_S_COLOR_CLASH_KIDS
+    return clash, f"colour✗{c_color}≠{t_color}"
+
+
 def _scb_age_persona(trigger, t_licence):
     """Return (persona, band_label). persona ∈ {'KIDS','OLDER'} picks the
     slot list; band_label is for diagnostics."""
@@ -19600,7 +19661,7 @@ def _scb_age_persona(trigger, t_licence):
     return 'KIDS', 'Δημοτικού'
 
 
-def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, notes):
+def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, t_color, notes):
     """Score one role's candidate pool. Returns it sorted by Final_Score desc."""
     if sub is None or sub.empty:
         return pd.DataFrame()
@@ -19610,6 +19671,7 @@ def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, not
         c_lic = _scb_licence(title)
         c_brand = _scb_brand(r)
         c_price = _scb_price(r)
+        c_color = _scb_color(title)
         sales = pd.to_numeric(r.get('Sum of Sales', 0), errors='coerce')
         sales = 0.0 if pd.isna(sales) else float(sales)
         avail = _scb_strip(r.get('AVAILABILITY', ''))
@@ -19630,17 +19692,24 @@ def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, not
             if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("age-ok")
-        # 3. Brand ecosystem (GIM / Polo / Eastpak licensed lines cluster).
+        # 3. Colour coordination — prefer same-family / neutral companions,
+        #    penalise a bright clash (the teal-case-on-a-black-bag fix).
+        col_delta, col_reason = _scb_color_score(t_color, c_color, persona)
+        if col_delta:
+            score += col_delta
+            if col_reason:
+                reasons.append(col_reason)
+        # 4. Brand ecosystem (GIM / Polo / Eastpak licensed lines cluster).
         if t_brand and c_brand == t_brand:
             score += SCHOOLBAG_S_BRAND_MATCH
             reasons.append(f"brand={c_brand}")
-        # 4. Availability.
+        # 5. Availability.
         if 'ΑΜΕΣΑ' in avail:
             score += SCHOOLBAG_S_AVAIL
-        # 5. Price proximity — keep companions cheap & proportionate to the bag.
+        # 6. Price proximity — keep companions cheap & proportionate to the bag.
         ideal = min(max(tprice * 0.35, 4.0), 20.0)
         score -= SCHOOLBAG_PRICE_W * abs(c_price - ideal)
-        # 6. Sales micro-tiebreaker.
+        # 7. Sales micro-tiebreaker.
         score += sales
 
         rr = r.copy()
@@ -19667,12 +19736,14 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
     t_brand = _scb_brand(trigger)
     t_price = _scb_price(trigger)
     t_licence = _scb_licence(trigger.get('Title', ''))
+    t_color = _scb_color(trigger.get('Title', ''))
     persona, band = _scb_age_persona(trigger, t_licence)
     slot_list = SCHOOLBAG_KIDS_SLOTS if persona == 'KIDS' else SCHOOLBAG_OLDER_SLOTS
 
     diag.append(("0. Trigger",
                  f"{t_brand or '—'} €{t_price:.0f}",
-                 f"licence={t_licence or '—'} | persona={persona} ({band})"))
+                 f"licence={t_licence or '—'} | colour={t_color or '—'} | "
+                 f"persona={persona} ({band})"))
 
     # ── Build the companion universe (Stationery + Books for character
     #    depth), deduped, trigger & all backpacks excluded. ────────────────
@@ -19734,14 +19805,14 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
             continue
         nts.append(f"  Role pool size: {len(sub)}")
         scored = _scb_score_companion(sub, role_key, t_licence, persona,
-                                     t_brand, t_price, nts)
+                                     t_brand, t_price, t_color, nts)
         pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
         diag.append((f"Pool {slot_num} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
 
     # ── Universal backfill: whole gated pool scored generically ───────────
     backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, persona,
-                                   t_brand, t_price, None)
+                                   t_brand, t_price, t_color, None)
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
     used = {tm}
@@ -34963,14 +35034,15 @@ with st.expander("⚙️ System Diagnostics"):
     elif active_cluster == "School Bags":
         # v28.61 — school-bag diagnostic surface: the title-parsed signals the
         # engine ranks & gates on (character licence / age persona / brand /
-        # price), since structured spec columns are near-empty.
+        # price / colour), since structured spec columns are near-empty.
         t_lic_sb = _scb_licence(trigger.get('Title', '')) or '—'
         t_br_sb = _scb_brand(trigger) or '—'
         t_pr_sb = _scb_price(trigger)
+        t_col_sb = _scb_color(trigger.get('Title', '')) or '—'
         t_pers_sb, t_band_sb = _scb_age_persona(trigger, _scb_licence(trigger.get('Title', '')))
         st.markdown(
-            f"**Character/Licence:** `{t_lic_sb}` | **Persona:** `{t_pers_sb}` "
-            f"({t_band_sb}) | **Brand:** `{t_br_sb}`"
+            f"**Character/Licence:** `{t_lic_sb}` | **Colour:** `{t_col_sb}` | "
+            f"**Persona:** `{t_pers_sb}` ({t_band_sb}) | **Brand:** `{t_br_sb}`"
         )
         st.markdown(
             f"**Price:** `€{t_pr_sb:.0f}` (companion cap "
