@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.60.3-2026-06-11"
+APP_BUILD = "parquet-v28.61.1-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.60.3 — Ηλεκτρικά Πατίνια: συνεχής προσαρμογή τιμής (~9% του πατινιού) ανά αξεσουάρ + specs (βάρος→παιδικό) + brand· φορτιστής/τσάντα brand-locked.
+        🟢 Engine v28.61.1 — Σχολικές Τσάντες: character-match (Frozen→Frozen κασετίνα/παγούρι) + ηλικία (νήπιο/δημοτικό/εφηβικό) + τιμή· σχολικό kit 10 ειδών, καμία 2η τσάντα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1413,6 +1413,170 @@ STATIONERY_TRIGGERS = {
     "Notebooks":         {"hierarchies": {"ΣΗΜΕΙΩΜΑΤΑΡΙΑ"}},
     "Notepads":          {"hierarchies": {"ΤΕΤΡΑΔΙΑ", "ΗΜΕΡΟΛΟΓΙΑ", "ORGANISER"}},
 }
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 SCHOOL BAGS CONFIGURATION (Σχολικές Τσάντες — Σακίδια / Τρόλεϊ)
+# ═════════════════════════════════════════════════════════════
+# Trigger source: Stationery sheet, Level 2 = 'Bags',
+# Hierarchy = 'ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ' (1.263 SKUs). The same Stationery sheet
+# (+ Books for extra character depth) carries every back-to-school
+# companion the engine recommends from.
+#
+# DATA AUDIT (why HYBRID, title-parse-driven):
+#   • Structured spec columns (Είδος/Τύπος2/...) are 2–8 % filled → useless.
+#   • Sum of Sales covers only ~22 % of bags and is tiny in € → weak signal.
+#   • The REAL signal is in the Title + LIST PRICE + Κατασκευαστής:
+#       – character/licence  (Frozen 18, Barbie 28, Minecraft 21, Bluey 22,
+#                             NBA 29, Unicorn 24, Spiderman 9, Pokemon 11…)
+#       – age band           (Νηπίου 57, Δημοτικού 172, Γυμνασίου/Λυκείου 14)
+#       – type               (Πλάτης 901, Τρόλεϊ 322, Μέσης 23)
+#       – price              (€3–150, median €35, q25–q75 €25–50)
+#
+# RECOMMENDATION DEPTH — HYBRID, four layers (priority order):
+#   1. CHARACTER/LICENCE MATCH — DOMINANT boost (not a hard gate: no single
+#      licence has 10 companions, so we boost, never starve the carousel).
+#      A Frozen bag pulls the Frozen κασετίνα / Frozen παγούρι to the top.
+#   2. AGE-BAND COHERENCE — routes the kit (kids vs older/lifestyle) AND
+#      hard-blocks toddler-only character supplies on a teen/adult Eastpak.
+#   3. PRICE SANITY — a companion is never dearer than the bag (cap).
+#   4. BRAND ecosystem + SALES tiebreaker.
+#
+# It is a CROSS-SELL rail (like e-scooters): the carousel completes a
+# 10-piece school kit and NEVER recommends another backpack.
+
+SCHOOLBAG_L2 = "Bags"
+SCHOOLBAG_TRIGGER_HIERARCHY = "ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ"
+SCHOOLBAG_SLOT_TARGET = 10
+
+# 🧪 Optional test-list filter (leave empty to show ALL 1.263 bags).
+SCHOOLBAG_TEST_SKUS = set()
+
+# ── Companion hierarchies that make up a back-to-school kit. Every value
+#    here exists in the Stationery sheet (and most also in Books). Anything
+#    NOT in this set is invisible to the engine — and ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ is
+#    deliberately absent (cross-sell, never a 2nd bag).
+SCHOOLBAG_COMPANION_HIERARCHIES = {
+    "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ",
+    "ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ",
+    "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ",
+    "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ", "ΜΑΡΚΑΔΟΡΟΙ",
+    "ΜΟΛΥΒΙΑ", "ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ",
+    "ΞΥΣΤΡΕΣ", "ΓΟΜΕΣ",
+    "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL",
+    "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ",
+    "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ",
+    "ΝΤΟΣΙΕ", "ΨΑΛΙΔΙΑ", "ΚΟΛΛΕΣ",
+}
+
+# ── Role → hierarchies + per-slot caps. (slot, role_label, role_key,
+#    [hierarchies], max_round_1, max_total). Two slot lists routed by the
+#    age persona (kids vs older/lifestyle) — mirrors the desktop persona
+#    pattern. role_key is the dedupe axis for the round-robin fill.
+SCHOOLBAG_KIDS_SLOTS = [
+    (1,  'Κασετίνα',        'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                 1, 2),
+    (2,  'Παγούρι',         'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                  1, 1),
+    (3,  'Φαγητοθήκη',      'LUNCH',    ["ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ",
+                                         "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                                 1, 1),
+    (4,  'Ξυλομπογιές',     'COLOR',    ["ΞΥΛΟΜΠΟΓΙΕΣ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΜΑΡΚΑΔΟΡΟΙ"], 1, 2),
+    (5,  'Μολύβια',         'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                        1, 1),
+    (6,  'Τετράδια',        'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                      1, 2),
+    (7,  'Ξύστρα',          'SHARP',    ["ΞΥΣΤΡΕΣ"],                                        1, 1),
+    (8,  'Γόμα',            'ERASER',   ["ΓΟΜΕΣ"],                                          1, 1),
+    (9,  'Στυλό',           'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                   1, 1),
+    (10, 'Αυτοκόλλητα',     'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ"],            1, 1),
+]
+
+# Older / teen / lifestyle (Γυμνάσιο-Λύκειο, Eastpak/JanSport/Fjällräven…):
+# swap the toddler-ish slots (stickers, coloured pencils) for grown-up ones
+# (geometry set, highlighters, folders, gel pens).
+SCHOOLBAG_OLDER_SLOTS = [
+    (1,  'Κασετίνα',        'CASE',      ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],               1, 2),
+    (2,  'Παγούρι',         'BOTTLE',    ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                1, 1),
+    (3,  'Φαγητοθήκη',      'LUNCH',     ["ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],            1, 1),
+    (4,  'Στυλό Gel',       'PEN',       ["ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ"],                 1, 2),
+    (5,  'Μαρκαδόροι',      'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΜΑΡΚΑΔΟΡΟΙ"],       1, 1),
+    (6,  'Τετράδια',        'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                    1, 2),
+    (7,  'Γεωμετρικά',      'GEOMETRY',  ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                            1, 1),
+    (8,  'Ντοσιέ',          'FOLDER',    ["ΝΤΟΣΙΕ"],                                       1, 1),
+    (9,  'Μολύβια',         'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                      1, 1),
+    (10, 'Γόμα / Ξύστρα',   'ERASER',    ["ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ"],                             1, 1),
+]
+
+SCHOOLBAG_MARKETING_COPY = {
+    'Κασετίνα':      "Οργάνωσε όλα τα σχολικά σου.",
+    'Παγούρι':       "Μείνε ενυδατωμένος όλη μέρα.",
+    'Φαγητοθήκη':    "Κράτα το κολατσιό φρέσκο.",
+    'Ξυλομπογιές':   "Χρώμα & δημιουργικότητα.",
+    'Μολύβια':       "Για κάθε εργασία.",
+    'Τετράδια':      "Έτοιμα για τη νέα χρονιά.",
+    'Ξύστρα':        "Πάντα κοφτερή μύτη.",
+    'Γόμα':          "Καθαρές διορθώσεις.",
+    'Στυλό':         "Γράψε με άνεση.",
+    'Στυλό Gel':     "Απαλό, καθαρό γράψιμο.",
+    'Αυτοκόλλητα':   "Διακόσμησε τα πράγματά σου.",
+    'Μαρκαδόροι':    "Τόνισε ό,τι μετράει.",
+    'Γεωμετρικά':    "Ακρίβεια στα μαθηματικά.",
+    'Ντοσιέ':        "Ταξινόμησε τις σημειώσεις σου.",
+    'Γόμα / Ξύστρα': "Τα βασικά της κασετίνας.",
+    'Σχολικά Είδη':  "Ιδανική προσθήκη στο kit σου.",
+}
+
+# ── Licence/character vocabulary parsed from the TITLE. Each canonical maps
+#    to NFD-stripped, upper-cased substrings. ORDER MATTERS — more specific
+#    patterns first ('HARRY POTTER' before any generic). KID_ONLY licences are
+#    blocked on teen/adult bags (no toddler Frozen κασετίνα on an Eastpak).
+SCHOOLBAG_LICENCES = [
+    ("FROZEN",       ["FROZEN", "ΨΥΧΡΑ"]),
+    ("BARBIE",       ["BARBIE", "ΜΠΑΡΜΠΙ"]),
+    ("MINECRAFT",    ["MINECRAFT"]),
+    ("SPIDERMAN",    ["SPIDER-MAN", "SPIDERMAN", "SPIDER MAN"]),
+    ("HARRY POTTER", ["HARRY POTTER"]),
+    ("POKEMON",      ["POKEMON", "PIKACHU"]),
+    ("BLUEY",        ["BLUEY"]),
+    ("PAW PATROL",   ["PAW PATROL"]),
+    ("PJ MASKS",     ["PJ MASK", "PJMASK"]),
+    ("GABBY",        ["GABBY", "GABBYS"]),
+    ("STITCH",       ["STITCH", "LILO"]),
+    ("SONIC",        ["SONIC"]),
+    ("NARUTO",       ["NARUTO"]),
+    ("BATMAN",       ["BATMAN"]),
+    ("MINNIE",       ["MINNIE"]),
+    ("MICKEY",       ["MICKEY"]),
+    ("CARS",         ["DISNEY CARS", " CARS "]),
+    ("UNICORN",      ["UNICORN", "ΜΟΝΟΚΕΡ"]),
+    ("PRINCESS",     ["PRINCESS", "ΠΡΙΓΚΙΠ"]),
+    ("WEDNESDAY",    ["WEDNESDAY", "ADDAMS"]),
+    ("NBA",          [" NBA ", "NBA "]),
+    ("REAL MADRID",  ["REAL MADRID"]),
+    ("BARCELONA",    ["BARCELONA", " FCB "]),
+    ("MARVEL",       ["MARVEL", "AVENGERS"]),
+    ("DISNEY",       ["DISNEY"]),
+]
+
+# Licences that ONLY suit small kids → dropped from a teen/adult bag's kit.
+SCHOOLBAG_KID_ONLY_LICENCES = {
+    "FROZEN", "BARBIE", "BLUEY", "PAW PATROL", "PJ MASKS", "GABBY",
+    "MINNIE", "MICKEY", "CARS", "UNICORN", "PRINCESS", "DISNEY",
+}
+
+# Lifestyle / teen / adult brands — these bags are NOT character-licensed and
+# should get the OLDER kit (and never a toddler-character companion).
+SCHOOLBAG_ADULT_BRANDS = {
+    "EASTPAK", "JANSPORT", "FJALLRAVEN", "KIPLING", "HERSCHEL",
+    "MAUI & SONS", "NO FEAR", "LYCSAC", "SPACE JUNK", "MIQUELRIUS",
+    "SAMSONITE", "AMERICAN TOURISTER", "NATIONAL GEOGRAPHIC", "POLO",
+}
+
+# Scoring constants (kept on the same 100k scale as the other engines so the
+# layers stack predictably: licence ≫ age ≫ brand ≫ price/sales tiebreak).
+SCHOOLBAG_S_LICENCE_MATCH = 300_000   # companion shares the bag's character
+SCHOOLBAG_S_AGE_COHERENT  =  40_000   # companion age band matches the bag
+SCHOOLBAG_S_BRAND_MATCH   =  25_000   # same maker (GIM, Polo, Eastpak…)
+SCHOOLBAG_S_AVAIL         =   1_000   # immediately available
+SCHOOLBAG_PRICE_W         =     400   # per-€ penalty on price distance
+SCHOOLBAG_PRICE_FLOOR     =      25   # companions up to €25 always price-OK
+SCHOOLBAG_PRICE_CAP_MULT  =     1.1   # companion ≤ bag×1.1 (else dropped)
 
 
 # ═════════════════════════════════════════════════════════════
@@ -9344,6 +9508,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4a2 2 0 0 1 2-2h12v20H6a2 2 0 0 1-2-2V4z'/%3E%3Ccircle cx='6' cy='6' r='0.5' fill='%23ff5e00'/%3E%3Ccircle cx='6' cy='10' r='0.5' fill='%23ff5e00'/%3E%3Ccircle cx='6' cy='14' r='0.5' fill='%23ff5e00'/%3E%3Ccircle cx='6' cy='18' r='0.5' fill='%23ff5e00'/%3E%3C/svg%3E"},
         {"key": "Notepads", "label": "Σημειωμ.",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='4' width='16' height='18' rx='1'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='12' y1='2' x2='12' y2='6'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='12' x2='16' y2='12'/%3E%3Cline x1='8' y1='16' x2='14' y2='16'/%3E%3C/svg%3E"},
+        {"key": "School Bags", "label": "Σχολικές\nΤσάντες",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8a6 6 0 0 1 12 0v1'/%3E%3Crect x='4' y='8' width='16' height='13' rx='2'/%3E%3Cpath d='M9 21v-6a3 3 0 0 1 6 0v6'/%3E%3Cline x1='4' y1='14' x2='20' y2='14'/%3E%3C/svg%3E"},
     ],
     "SDA": [
         {"key": "Robot Vacuums", "label": "Σκούπες\nΡομπότ",
@@ -10068,6 +10234,32 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ηλεκτρικό Πατίνι</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", sc_pool['Title'].unique(), label_visibility="collapsed", key="escooter_sel")
                 trigger = sc_pool[sc_pool['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "School Bags":
+        # v28.61 — Σχολικές Τσάντες. Triggers live in the Stationery sheet,
+        # Level 2 = 'Bags', Hierarchy = 'ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ'. The same sheet
+        # (+ Books) carries every back-to-school companion the engine
+        # recommends from, so picker and engine share df_stationery.
+        if df_stationery is None or df_stationery.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Σχολικές Τσάντες (sheet Stationery/Bags). "
+                f"Sheets loaded: {', '.join(sheets_loaded)}"
+            )
+        else:
+            hier_clean = df_stationery['Hierarchy'].fillna('').astype(str).str.strip()
+            sb_pool = df_stationery[hier_clean == SCHOOLBAG_TRIGGER_HIERARCHY].copy()
+
+            # 🧪 Optional test-list filter (leave SCHOOLBAG_TEST_SKUS empty for all)
+            if SCHOOLBAG_TEST_SKUS and not sb_pool.empty:
+                mat_clean = sb_pool['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                sb_pool = sb_pool[mat_clean.isin(SCHOOLBAG_TEST_SKUS)]
+
+            if sb_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Σχολικές Τσάντες στο sheet Stationery (Bags).")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Σχολική Τσάντα</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", sb_pool['Title'].dropna().unique(), label_visibility="collapsed", key="schoolbag_sel")
+                trigger = sb_pool[sb_pool['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster == "TVs":
         if df_products.empty: st.stop()
@@ -19341,6 +19533,293 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_num}/{ESCOOTER_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 SCHOOL BAGS ENGINE — Σχολικές Τσάντες (cross-sell kit)
+# ═════════════════════════════════════════════════════════════
+# HYBRID, title-parse-driven (the structured specs are 2–8 % filled, so
+# the relevance comes from the Title + price, not from columns):
+#   character/licence match (DOMINANT) → age-band coherence (routes the kit
+#   + blocks toddler-character supplies on teen/adult bags) → price sanity
+#   → brand ecosystem → sales tiebreaker. Role round-robin guarantees a
+#   varied 10-piece kit; mandatory backfill reaches 10/10; NO second bag.
+
+def _scb_strip(s):
+    """NFD accent-strip + upper, NaN-safe (str(NaN)=='nan' would be truthy
+    and silently poison title parsing, per the Greek-text invariant)."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    txt = str(s)
+    if txt.strip().lower() == 'nan':
+        return ""
+    txt = txt.replace('\xa0', ' ')
+    return ''.join(c for c in unicodedata.normalize('NFD', txt)
+                   if unicodedata.category(c) != 'Mn').upper()
+
+
+def _scb_brand(row):
+    return _scb_strip(row.get('Κατασκευαστής', '')).strip()
+
+
+def _scb_price(row):
+    return parse_euro_price(row.get('LIST PRICE', 0))
+
+
+def _scb_licence(text):
+    """First character/licence whose pattern appears in the (stripped) title.
+    Returns a canonical token (e.g. 'FROZEN') or None."""
+    t = " " + _scb_strip(text) + " "
+    for canon, pats in SCHOOLBAG_LICENCES:
+        for p in pats:
+            if p in t:
+                return canon
+    return None
+
+
+def _scb_age_persona(trigger, t_licence):
+    """Return (persona, band_label). persona ∈ {'KIDS','OLDER'} picks the
+    slot list; band_label is for diagnostics."""
+    title = _scb_strip(trigger.get('Title', ''))
+    brand = _scb_brand(trigger)
+    if 'ΓΥΜΝΑΣΙ' in title or 'ΛΥΚΕΙ' in title:
+        return 'OLDER', 'Γυμνάσιο/Λύκειο'
+    if brand in SCHOOLBAG_ADULT_BRANDS and not (t_licence in SCHOOLBAG_KID_ONLY_LICENCES):
+        return 'OLDER', 'Lifestyle/Ενηλίκων'
+    if 'ΝΗΠΙ' in title:
+        return 'KIDS', 'Νηπίου'
+    if 'ΔΗΜΟΤΙΚ' in title:
+        return 'KIDS', 'Δημοτικού'
+    # Licensed (Frozen/Barbie/…) and untagged bags default to primary-school.
+    return 'KIDS', 'Δημοτικού'
+
+
+def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, notes):
+    """Score one role's candidate pool. Returns it sorted by Final_Score desc."""
+    if sub is None or sub.empty:
+        return pd.DataFrame()
+    rows = []
+    for _, r in sub.iterrows():
+        title = r.get('Title', '')
+        c_lic = _scb_licence(title)
+        c_brand = _scb_brand(r)
+        c_price = _scb_price(r)
+        sales = pd.to_numeric(r.get('Sum of Sales', 0), errors='coerce')
+        sales = 0.0 if pd.isna(sales) else float(sales)
+        avail = _scb_strip(r.get('AVAILABILITY', ''))
+
+        score = 0.0
+        reasons = []
+        # 1. Character/licence match — the dominant cross-sell signal.
+        if t_licence and c_lic == t_licence:
+            score += SCHOOLBAG_S_LICENCE_MATCH
+            reasons.append(f"licence={c_lic}")
+        # 2. Age-band coherence: kids kit favours themed items; older kit
+        #    favours plain (no kid-only licence) items.
+        if persona == 'KIDS':
+            if c_lic is not None:
+                score += SCHOOLBAG_S_AGE_COHERENT
+                reasons.append("kid-themed")
+        else:  # OLDER
+            if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
+                score += SCHOOLBAG_S_AGE_COHERENT
+                reasons.append("age-ok")
+        # 3. Brand ecosystem (GIM / Polo / Eastpak licensed lines cluster).
+        if t_brand and c_brand == t_brand:
+            score += SCHOOLBAG_S_BRAND_MATCH
+            reasons.append(f"brand={c_brand}")
+        # 4. Availability.
+        if 'ΑΜΕΣΑ' in avail:
+            score += SCHOOLBAG_S_AVAIL
+        # 5. Price proximity — keep companions cheap & proportionate to the bag.
+        ideal = min(max(tprice * 0.35, 4.0), 20.0)
+        score -= SCHOOLBAG_PRICE_W * abs(c_price - ideal)
+        # 6. Sales micro-tiebreaker.
+        score += sales
+
+        rr = r.copy()
+        rr['Final_Score'] = score
+        rr['_scb_lic'] = c_lic or ''
+        rr['_scb_reasons'] = ", ".join(reasons) if reasons else "—"
+        rows.append(rr)
+    out = pd.DataFrame(rows).sort_values('Final_Score', ascending=False)
+    if notes is not None and not out.empty:
+        top = out.iloc[0]
+        notes.append(f"  Top: {str(top.get('Title',''))[:55]} "
+                     f"(score {top['Final_Score']:,.0f} | {top['_scb_reasons']})")
+    return out
+
+
+def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None):
+    """Build exactly 10 cross-sell slots for a school-bag trigger.
+    HYBRID character × age × price × brand. Cross-sell only (no 2nd bag)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    t_brand = _scb_brand(trigger)
+    t_price = _scb_price(trigger)
+    t_licence = _scb_licence(trigger.get('Title', ''))
+    persona, band = _scb_age_persona(trigger, t_licence)
+    slot_list = SCHOOLBAG_KIDS_SLOTS if persona == 'KIDS' else SCHOOLBAG_OLDER_SLOTS
+
+    diag.append(("0. Trigger",
+                 f"{t_brand or '—'} €{t_price:.0f}",
+                 f"licence={t_licence or '—'} | persona={persona} ({band})"))
+
+    # ── Build the companion universe (Stationery + Books for character
+    #    depth), deduped, trigger & all backpacks excluded. ────────────────
+    frames = [df_stationery] if df_stationery is not None else []
+    if df_books is not None and not df_books.empty:
+        frames.append(df_books)
+    if not frames:
+        diag.append(("ERROR", 0, "No Stationery/Books source — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    uni = pd.concat(frames, ignore_index=True)
+    hier = uni['Hierarchy'].fillna('').astype(str).str.strip()
+    uni = uni[hier.isin(SCHOOLBAG_COMPANION_HIERARCHIES)].copy()
+    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    diag.append(("1. Companion universe", len(uni),
+                 "Stationery+Books, kit hierarchies only, no bags"))
+
+    # ── HARD GATES (price cap + age) applied before scoring ───────────────
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    price_cap = max(t_price * SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR)
+    kept, dropped_price, dropped_age = [], 0, 0
+    for _, r in uni.iterrows():
+        cp = _scb_price(r)
+        # (a) A companion is never (much) dearer than the bag itself.
+        if cp > price_cap:
+            dropped_price += 1
+            continue
+        # (b) No toddler-only character supplies on a teen/adult bag.
+        if persona == 'OLDER':
+            c_lic = _scb_licence(r.get('Title', ''))
+            if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
+                dropped_age += 1
+                gate_notes.append(f"  ✗ DROP kid-licence [{c_lic}] on OLDER bag: "
+                                  f"{str(r.get('Title',''))[:48]}")
+                continue
+        kept.append(r)
+    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
+    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
+                      f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
+                      f"age dropped {dropped_age})")
+    diag.append(("2. After hard gates", len(gated),
+                 f"price>{price_cap:.0f}: {dropped_price} | kid-on-older: {dropped_age}"))
+
+    if gated.empty:
+        diag.append(("ERROR", 0, "No companions survived the gates"))
+        slot_notes[0] = gate_notes
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
+
+    # ── Build & score each role pool from the persona's slot list ─────────
+    pools = {}  # rank → (role_label, scored_df, max_r1, max_total, notes)
+    for slot_num, role_label, role_key, hierarchies, max_r1, max_total in slot_list:
+        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) "
+               f"| max_r1={max_r1} | max_total={max_total} ==="]
+        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
+        if sub.empty:
+            nts.append("  ⚠ No candidates — slot filled from backfill")
+            pools[slot_num] = (role_label, pd.DataFrame(), max_r1, max_total, nts)
+            continue
+        nts.append(f"  Role pool size: {len(sub)}")
+        scored = _scb_score_companion(sub, role_key, t_licence, persona,
+                                     t_brand, t_price, nts)
+        pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
+        diag.append((f"Pool {slot_num} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    # ── Universal backfill: whole gated pool scored generically ───────────
+    backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, persona,
+                                   t_brand, t_price, None)
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used = {tm}
+    cursors = {k: 0 for k in pools}
+    taken = {k: 0 for k in pools}
+    slot_filled = 0
+    round_idx = 0
+    while slot_filled < SCHOOLBAG_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+            if slot_filled >= SCHOOLBAG_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cur = cursors[rank]
+            done = 0
+            while done < take_n and cur < len(scored) and slot_filled < SCHOOLBAG_SLOT_TARGET:
+                row = scored.iloc[cur]
+                cur += 1
+                if row['Material'] in used:
+                    continue
+                slot_filled += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_filled
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = SCHOOLBAG_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στο kit σου.")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_filled, []).append(
+                    f"Round {round_idx} | '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('_scb_reasons',''))} | "
+                    f"{str(row.get('Title',''))[:60]}")
+            cursors[rank] = cur
+        if not progress:
+            break
+
+    # ── Mandatory backfill: reach 10/10 from the gated floor ──────────────
+    if slot_filled < SCHOOLBAG_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_filled >= SCHOOLBAG_SLOT_TARGET:
+                break
+            if row['Material'] in used:
+                continue
+            slot_filled += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_filled
+            role_label = 'Σχολικά Είδη'
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = SCHOOLBAG_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στο kit σου.")
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used.add(row['Material'])
+            slot_notes.setdefault(slot_filled, []).append(
+                f"BACKFILL | '{role_label}' | "
+                f"{str(row.get('Title',''))[:60]}")
+
+    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
+    pool_diag = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+        pool_diag.extend(nts)
+        pool_diag.append(f"  → consumed {taken[rank]} / "
+                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag.append("")
+    slot_notes[0] = pool_diag
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_filled}/{SCHOOLBAG_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -34065,6 +34544,17 @@ elif active_cluster == "E-Scooters":
     recs, diag, slot_notes, full_candidates = run_escooter_engine(
         trigger, df_spare, df_history)
     slot_diag = []
+elif active_cluster == "School Bags":
+    # v28.61 — Σχολικές Τσάντες cross-sell. Trigger + every back-to-school
+    # companion live in the Stationery sheet (+ Books for character depth),
+    # Hierarchy = 'ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ'. HYBRID title-parse engine: character/
+    # licence match (Frozen→Frozen κασετίνα/παγούρι) DOMINATES → age-band
+    # coherence (kids vs older/lifestyle; blocks toddler characters on an
+    # Eastpak) → price sanity (companion ≤ bag) → brand + sales tiebreak →
+    # role round-robin builds a 10-piece kit, never a 2nd bag.
+    recs, diag, slot_notes, full_candidates = run_schoolbags_engine(
+        trigger, df_stationery, df_books, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -34258,6 +34748,9 @@ if not recs.empty:
             # Per-role accessory/trade-up copy (static dict; the engine already
             # stamps Marketing_Copy onto each row).
             marketing_text = str(r.get('Marketing_Copy', ESCOOTER_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
+        elif active_cluster == "School Bags":
+            # Per-role school-kit copy (engine stamps Marketing_Copy per row).
+            marketing_text = str(r.get('Marketing_Copy', SCHOOLBAG_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στο kit σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -34295,6 +34788,8 @@ if not recs.empty:
         header_text = "Δροσιά σε όλο το σπίτι"
     elif active_cluster == "E-Scooters":
         header_text = "Όλα για το πατίνι σου"
+    elif active_cluster == "School Bags":
+        header_text = "Έτοιμοι για το σχολείο"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -34465,6 +34960,23 @@ with st.expander("⚙️ System Diagnostics"):
             f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
 
+    elif active_cluster == "School Bags":
+        # v28.61 — school-bag diagnostic surface: the title-parsed signals the
+        # engine ranks & gates on (character licence / age persona / brand /
+        # price), since structured spec columns are near-empty.
+        t_lic_sb = _scb_licence(trigger.get('Title', '')) or '—'
+        t_br_sb = _scb_brand(trigger) or '—'
+        t_pr_sb = _scb_price(trigger)
+        t_pers_sb, t_band_sb = _scb_age_persona(trigger, _scb_licence(trigger.get('Title', '')))
+        st.markdown(
+            f"**Character/Licence:** `{t_lic_sb}` | **Persona:** `{t_pers_sb}` "
+            f"({t_band_sb}) | **Brand:** `{t_br_sb}`"
+        )
+        st.markdown(
+            f"**Price:** `€{t_pr_sb:.0f}` (companion cap "
+            f"€{max(t_pr_sb*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
+            f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
@@ -34517,6 +35029,12 @@ with st.expander("⚙️ System Diagnostics"):
                               'Κατασκευαστής','Μοντέλο','Μέγιστη Ταχύτητα',
                               'Αυτονομία','Ισχύς Κινητήρα ≡','Μέγιστο Βάρος Αναβάτη',
                               'Ηλικία','Προτεινόμενη χρήση','Συμβατό μοντέλο',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "School Bags":
+        # v28.61 — school-bag attributes: the engine parses character/age from
+        # the Title and reads brand + price; structured spec cols are sparse.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Greek School Books":
         # v28.30 — school book attributes: class + subject + publisher
