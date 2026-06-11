@@ -1253,15 +1253,20 @@ FAN_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
 #           (printer-cartridge principle); wrong-domain items tagged ONLY
 #           για E-Bikes / Hoverboards are dropped (helmets stay universal).
 #       (2) ROLE round-robin → helmet → phone-mount → carry-bag → tyre-pump →
-#           charger → generic accessory → trade-up scooter (capped backfill).
+#           charger → generic accessory. NO trade-up scooter — a scooter is
+#           never recommended to a scooter buyer (cross-sell, not similar-rail).
 #       (3) brand-ecosystem boost + sales tiebreak rank WITHIN each role.
 #   • The Xiaomi "Fast Charge 2 268W για Electric Scooter 6 Max, 6 Ultra &
 #     Σειρά 7" is the canonical hard-gate: a non-Xiaomi (or non-6Max/6Ultra/
-#     S7) trigger must NEVER see it. Phone-mounts/bags clamp any handlebar, so
-#     they are brand-PREFERRED (ecosystem boost), not hard-locked.
-#   • Accessory pool is thin (~14 survive the gate), so SIBLING SCOOTERS are a
-#     CAPPED trade-up backfill (same-hierarchy is intentional here, like Manga)
-#     guaranteeing the carousel always reaches 10 slots — accessories lead.
+#     S7) trigger must NEVER see it. Carry-BAGS from a scooter maker are also
+#     locked (a Ninebot bag is sized for a Ninebot, not a Sharp); phone-mounts,
+#     pumps and bells clamp/fit anything, so they stay universal.
+#   • HELMETS are hard-split by segment: a kids LED helmet only shows on a kids
+#     scooter, an adult helmet only on an adult scooter (no kids helmet on an
+#     adult ride and vice-versa).
+#   • The universal accessory floor (adult helmet + 4 mounts + 2 Nilox bags +
+#     2 pumps + 1 bell = 10) backfills every trigger to 10 with NO scooters,
+#     so caps are generous and the carousel always reaches 10 slots.
 ESCOOTER_TRIGGER_HIERARCHY = "E-Scooters"
 ESCOOTER_ACC_HIERARCHIES = {
     "E-Scooter Various Acc", "E-Scooter Safety Gear", "E-Scooter Accessories",
@@ -1277,18 +1282,27 @@ ESCOOTER_SLOT_TARGET = 10
 ESCOOTER_TIER_THRESHOLDS = {'Mid': 400, 'Premium': 800}
 ESCOOTER_TIER_NAMES = ['Entry', 'Mid', 'Premium']
 
-# (rank, role_label, role_key, max_round_1, max_total) — accessory roles lead;
-# the trade-up scooter is a low-priority CAPPED backfill so the carousel always
-# reaches 10 without ever looking like a "similar products" rail.
+# (rank, role_label, role_key, max_round_1, max_total) — accessories ONLY.
+# NO trade-up scooter pool: this is a cross-sell rail, not a "similar models"
+# rail, so the carousel never suggests another scooter. Caps are generous so
+# the universal accessory floor (helmet + mounts + bags + pumps + bell) always
+# backfills to 10 even for a lone-brand trigger (e.g. the single SHARP).
 ESCOOTER_PRIORITY = [
-    (1, 'Κράνος & Προστασία',      'HELMET',  1, 2),
-    (2, 'Βάση Κινητού',            'MOUNT',   1, 2),
-    (3, 'Τσάντα Μεταφοράς',        'BAG',     1, 2),
-    (4, 'Τρόμπα / Αεροσυμπιεστής', 'PUMP',    1, 1),
+    (1, 'Κράνος & Προστασία',      'HELMET',  1, 3),
+    (2, 'Βάση Κινητού',            'MOUNT',   1, 4),
+    (3, 'Τσάντα Μεταφοράς',        'BAG',     1, 3),
+    (4, 'Τρόμπα / Αεροσυμπιεστής', 'PUMP',    1, 2),
     (5, 'Φορτιστής & Ανταλλακτικά','CHARGER', 1, 1),
     (6, 'Αξεσουάρ Πατινιού',       'GENERIC', 1, 2),
-    (7, 'Πατίνι Αναβάθμισης',      'SCOOTER', 1, 3),
 ]
+
+# Scooter-MAKER brands. A maker-branded carry BAG is sized to that maker's
+# scooter (printer-cartridge), so it hard-gates to the trigger's brand family;
+# accessory-brand bags (NILOX, XSRES) stay universal. NINEBOT folds into SEGWAY
+# (same ecosystem). Phone-mounts/pumps/bells clamp/fit anything → not locked.
+ESCOOTER_MAKER_BRANDS = {
+    'XIAOMI', 'SEGWAY', 'URBANGLIDE', 'NAVEE', 'EGOBOO', 'KIDDOBOO', 'SHARP',
+}
 
 # Static per-role marketing copy.
 ESCOOTER_MARKETING_COPY = {
@@ -18928,6 +18942,13 @@ def _esc_brand(row) -> str:
     return t.split(' ')[0] if t else ''
 
 
+def _esc_brand_family(brand: str) -> str:
+    """Fold sub-brands into their ecosystem for the bag lock. Ninebot is
+    Segway's micromobility brand, so a Ninebot bag fits a Segway scooter."""
+    b = _esc_norm(brand)
+    return 'SEGWAY' if b == 'NINEBOT' else b
+
+
 def _esc_is_kids(row) -> bool:
     """Kids scooter / kids gear detection. Kiddoboo is kids-only; Urbanglide
     'Ride Flash' is the kids model; very low top speed (≤9 km/h) or a child
@@ -19114,27 +19135,44 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
     scooters = emo[hier == ESCOOTER_TRIGGER_HIERARCHY].copy()
     diag.append(("2. Accessory pool", len(acc_all),
                  "E-Scooter Various Acc / Safety Gear / Accessories"))
-    diag.append(("3. Trade-up scooters", len(scooters), "E-Scooters (capped backfill)"))
+    diag.append(("3. Scooters (excluded)", len(scooters), "E-Scooters NOT recommended (cross-sell only)"))
 
     # ── HARD GATES on the accessory pool (printer-cartridge + wrong-domain) ─
     gate_notes = ["=== HARD GATES (applied before scoring) ==="]
     kept_rows, dropped = [], 0
+    t_family = _esc_brand_family(tbrand)
     for _, r in acc_all.iterrows():
         role = _esc_acc_role(r)
         tags = _esc_compat_tags(r)
+        title_short = str(r.get('Title', ''))[:55]
         # (a) Brand/model-locked parts (chargers): require brand (+model) match.
         if role in _ESC_BRAND_LOCKED_ROLES:
             if not _esc_charger_allows(r, tbrand, tmodel_blob):
                 dropped += 1
-                gate_notes.append(f"  ✗ DROP brand-lock [{_esc_brand(r)}] "
-                                  f"{str(r.get('Title',''))[:55]}")
+                gate_notes.append(f"  ✗ DROP brand-lock [{_esc_brand(r)}] {title_short}")
                 continue
-        # (b) Wrong-domain: tagged ONLY e-bike/hoverboard with no scooter tag.
-        #     Helmets are universal safety → never domain-dropped.
-        elif role != 'HELMET' and tags and 'SCOOTER' not in tags:
+        # (b) HELMET segment lock: kids helmet only on a kids scooter, adult
+        #     helmet only on an adult scooter — no cross-segment head gear.
+        elif role == 'HELMET':
+            if _esc_is_kids(r) != t_is_kids:
+                dropped += 1
+                seg = 'KIDS' if _esc_is_kids(r) else 'ADULT'
+                gate_notes.append(f"  ✗ DROP helmet-segment [{seg} gear on "
+                                  f"{'ADULT' if not t_is_kids else 'KIDS'} ride] {title_short}")
+                continue
+        # (c) Maker-branded carry BAG: sized to that maker's scooter → lock to
+        #     the trigger's brand family (Ninebot bag ⇒ Segway only, etc.).
+        elif role == 'BAG':
+            ab = _esc_brand_family(_esc_brand(r))
+            if ab in ESCOOTER_MAKER_BRANDS and ab != t_family:
+                dropped += 1
+                gate_notes.append(f"  ✗ DROP bag brand-lock [{ab}≠{t_family or '—'}] {title_short}")
+                continue
+        # (d) Wrong-domain: tagged ONLY e-bike/hoverboard with no scooter tag
+        #     (helmets handled above are never domain-dropped).
+        if role not in ('HELMET',) and tags and 'SCOOTER' not in tags:
             dropped += 1
-            gate_notes.append(f"  ✗ DROP wrong-domain {sorted(tags)} "
-                              f"{str(r.get('Title',''))[:55]}")
+            gate_notes.append(f"  ✗ DROP wrong-domain {sorted(tags)} {title_short}")
             continue
         rr = r.copy()
         rr['_acc_role'] = role
@@ -19163,16 +19201,10 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
         diag.append((f"Pool {rank} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
 
-    # ── Universal backfill pool: any gated accessory then any scooter, by
-    #    score — guarantees the carousel reaches 10 even on thin triggers. ──
-    backfill_frames = []
-    if not acc.empty:
-        backfill_frames.append(_esc_base_scoring(acc.copy()))
-    if not scooters.empty:
-        backfill_frames.append(_esc_score_scooters(scooters, tbrand, ttier, []))
-    backfill = (pd.concat(backfill_frames, ignore_index=True)
-                  .sort_values('Final_Score', ascending=False)
-                if backfill_frames else pd.DataFrame())
+    # ── Universal backfill pool: gated ACCESSORIES only (no scooters), by
+    #    score — guarantees the carousel reaches 10 from the accessory floor. ──
+    backfill = (_esc_base_scoring(acc.copy()).sort_values('Final_Score', ascending=False)
+                if not acc.empty else pd.DataFrame())
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
     used_materials = {tm}
@@ -19231,9 +19263,7 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
             slot_num += 1
             rc = row.copy()
             rc['Assigned_Slot'] = slot_num
-            role_label = ('Πατίνι Αναβάθμισης'
-                          if str(row.get('Hierarchy', '')).strip() == ESCOOTER_TRIGGER_HIERARCHY
-                          else 'Αξεσουάρ Πατινιού')
+            role_label = 'Αξεσουάρ Πατινιού'
             rc['Slot_Role'] = role_label
             rc['Marketing_Copy'] = ESCOOTER_MARKETING_COPY.get(role_label, "Ιδανική επιλογή!")
             rc['Item_Rank'] = 99
