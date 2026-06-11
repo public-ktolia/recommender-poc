@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.60.2-2026-06-11"
+APP_BUILD = "parquet-v28.60.3-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.60.2 — Ηλεκτρικά Πατίνια: προτάσεις προσαρμοσμένες σε τιμή, specs (βάρος αναβάτη→παιδικό) & brand· φορτιστής/τσάντα κλειδωμένα στο brand.
+        🟢 Engine v28.60.3 — Ηλεκτρικά Πατίνια: συνεχής προσαρμογή τιμής (~9% του πατινιού) ανά αξεσουάρ + specs (βάρος→παιδικό) + brand· φορτιστής/τσάντα brand-locked.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1319,23 +1319,26 @@ ESCOOTER_MARKETING_COPY = {
 ESCOOTER_S_AVAILABILITY    =  100_000   # In-stock boost
 ESCOOTER_S_BRAND_MATCH     =  400_000   # Accessory brand == trigger brand (ecosystem)
 ESCOOTER_S_KIDS_MATCH      =  250_000   # Kids helmet ↔ kids scooter (or adult↔adult)
-ESCOOTER_S_SCOOTER_TAG     =  120_000   # Accessory explicitly tagged για Kick-Scooters
+ESCOOTER_S_SCOOTER_TAG     =   60_000   # Accessory explicitly tagged για Kick-Scooters (minor)
 ESCOOTER_S_PRICE_SAME_TIER =  150_000   # Trade-up scooter in the same price tier
 ESCOOTER_S_PRICE_STEPUP    =  200_000   # Trade-up scooter exactly one tier above (upsell)
 ESCOOTER_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
 
-# ── Price/spec responsiveness (v28.60.2) ──────────────────────────────────
+# ── Price/spec responsiveness (v28.60.3) ──────────────────────────────────
 # The accessory pool is mostly universal, so the carousel only differentiates
-# if scoring reacts to the trigger's PRICE and SPECS, not just brand:
-#   • Price-proximity: a PREMIUM scooter ranks the pricier (better) item in a
-#     role first; an ENTRY scooter ranks the cheaper one first; MID prefers a
-#     mid-priced (~€25) item. Reorders mounts / bags / pumps per trigger.
-#   • Over-budget gate: an accessory that costs MORE than the scooter sinks
-#     (a €169 helmet must never lead on a €119 scooter).
-#   • Spec gate: max rider weight ≤60 kg ⇒ kids/youth segment (cheap LED helmet
-#     instead of the €169 adult helmet) — see _esc_is_kids.
-ESCOOTER_S_PRICE_FIT_FACTOR =   2_000   # per € of accessory price (signed by tier)
-ESCOOTER_PRICE_FIT_MID_EUR  =      25   # mid-tier scooters prefer ~€25 accessories
+# if scoring reacts strongly to the trigger's PRICE (and specs), not just brand.
+# Price-fit is now CONTINUOUS, not 3 buckets: each trigger gets an ideal
+# accessory spend = RATIO × scooter price (clamped), and every accessory is
+# scored by how close its price is to that target. A €180 scooter targets a
+# ~€16 accessory, a €499 a ~€45 one, a €2099 the ceiling — so the within-role
+# pick (which mount, which pump, which bag) shifts smoothly across the range
+# and two different-priced scooters no longer look the same. The weight is set
+# high enough to be the dominant within-role sort (above stock/tag), but still
+# below the brand-ecosystem boost so a same-brand item keeps its role lead.
+ESCOOTER_ACC_BUDGET_RATIO   =   0.09   # ideal accessory spend ≈ 9% of scooter price
+ESCOOTER_ACC_PRICE_FLOOR    =      6   # never target below ~€6
+ESCOOTER_ACC_PRICE_CEIL     =     70   # or above ~€70 (catalog's non-helmet ceiling)
+ESCOOTER_S_PRICE_FIT_FACTOR =   6_000  # per € of distance from target (dominant)
 ESCOOTER_S_OVER_BUDGET      =  -1_000_000  # accessory dearer than the scooter → sink
 ESCOOTER_KIDS_WEIGHT_KG     =      60   # max rider weight ≤ this ⇒ kids/youth segment
 
@@ -19101,17 +19104,14 @@ def _esc_score_accessory(pool, role_key, tbrand, t_is_kids, notes, tprice, ttier
                      f"{'KIDS' if t_is_kids else 'ADULT'}): "
                      f"{int(match.sum())} match (+{ESCOOTER_S_KIDS_MATCH:,})")
 
-    # ── PRICE proximity to the trigger tier (the differentiator) ──────────
+    # ── PRICE-fit: continuous target ≈ RATIO × scooter price (the lever) ──
     ap = pool['_ap'] if '_ap' in pool.columns else pd.Series(0.0, index=pool.index)
-    if ttier == 2:        # Premium scooter → prefer the pricier (better) item.
-        pool['Final_Score'] += ap * ESCOOTER_S_PRICE_FIT_FACTOR
-        notes.append(f"  ⚖ Price-fit: PREMIUM trigger → dearer item ranks first")
-    elif ttier == 0:      # Entry scooter → prefer the cheaper item.
-        pool['Final_Score'] -= ap * ESCOOTER_S_PRICE_FIT_FACTOR
-        notes.append(f"  ⚖ Price-fit: ENTRY trigger → cheaper item ranks first")
-    else:                 # Mid scooter → prefer a mid-priced (~€25) item.
-        pool['Final_Score'] -= (ap - ESCOOTER_PRICE_FIT_MID_EUR).abs() * (ESCOOTER_S_PRICE_FIT_FACTOR / 2)
-        notes.append(f"  ⚖ Price-fit: MID trigger → ~€{ESCOOTER_PRICE_FIT_MID_EUR} item ranks first")
+    target = min(max(float(tprice or 0) * ESCOOTER_ACC_BUDGET_RATIO,
+                     ESCOOTER_ACC_PRICE_FLOOR), ESCOOTER_ACC_PRICE_CEIL)
+    pool['Final_Score'] -= (ap - target).abs() * ESCOOTER_S_PRICE_FIT_FACTOR
+    notes.append(f"  ⚖ Price-fit: target €{target:.0f} "
+                 f"(≈{ESCOOTER_ACC_BUDGET_RATIO:.0%} of €{float(tprice or 0):.0f}) "
+                 f"→ closest-priced item ranks first")
 
     # Over-budget sink: an accessory dearer than the scooter never leads.
     over = ap > float(tprice or 0)
@@ -19215,6 +19215,13 @@ def run_escooter_engine(trigger, df_spare, df_history=None):
                 dropped += 1
                 gate_notes.append(f"  ✗ DROP bag brand-lock [{ab}≠{t_family or '—'}] {title_short}")
                 continue
+        # (c2) PUMP is overkill for a kids/youth scooter (small solid wheels,
+        #      no pneumatic tyres) — drop it so the kids carousel differs in
+        #      COMPOSITION (helmet/basics-led), not just order.
+        elif role == 'PUMP' and t_is_kids:
+            dropped += 1
+            gate_notes.append(f"  ✗ DROP pump (kids/youth ride, solid wheels) {title_short}")
+            continue
         # (d) Wrong-domain: tagged ONLY e-bike/hoverboard with no scooter tag
         #     (helmets handled above are never domain-dropped).
         if role not in ('HELMET',) and tags and 'SCOOTER' not in tags:
