@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.58.3-2026-06-10"
+APP_BUILD = "parquet-v28.59.0-2026-06-10"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.58.3 — Mirrorless cross-sell engine (distinct types first, rotate to a mandatory 10; microSD/lens-mount spec-gated; no phone-rig gear).
+        🟢 Engine v28.59.0 — Ανεμιστήρες cross-sell engine (υγρόμετρο πρώτα, συμπληρωματικός ανεμιστήρας, smart-plug όταν λείπει τηλεχειριστήριο).
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1150,6 +1150,86 @@ DH_S_TANK_NEAR        =   60_000   # Dehum↔dehum: water-tank bucket within ±1
 DH_S_TANK_DIFF        =   25_000   # Dehum↔dehum: deliberately different tank (alt scale)
 DH_S_COMBO_REDUNDANT  = -120_000   # Soft nudge: clean-air item when trigger already combos
 DH_S_SALES_FACTOR     =      0.5   # Sales tiebreaker weight
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 FANS CONFIG — Ανεμιστήρες Δαπέδου + Επιτραπέζιοι — v28.59
+# ═════════════════════════════════════════════════════════════
+# Data audited 2026-06-10 (Air sheet):
+#   • 136 trigger SKUs: Ανεμιστήρες Δαπέδου (114) + Επιτραπέζιοι (22)
+#   • Κατασκευαστής / Τηλεχειριστήριο / Χρώμα populated 136/136 — reliable
+#   • Co-purchase History is unusable (7 fan baskets total) → HYBRID engine:
+#     specs (remote / brand / colour / fan-type) × price-tier × sales tiebreak.
+#   • Pools span 3 sheets: Air (gadgets, portable AC, dehum, clean air),
+#     Spare/Home (ΕΞΥΠΝΕΣ ΠΡΙΖΕΣ) and Products (SURGE PROTECTORS = πολύπριζα).
+#   • Smart-plug slot is SPEC-DRIVEN: 67/136 fans have NO remote control
+#     (Τηλεχειριστήριο = Όχι) — for those the copy reframes the plug as the
+#     missing remote ("control it from your phone"). Plugs/πολύπριζα are
+#     universal accessories, so no rival-brand gate is needed here.
+#   • Complementary-fan slot is the OPPOSITE hierarchy only (floor trigger →
+#     table fans, table trigger → floor fans) — same-hierarchy exclusion holds.
+FAN_TRIGGER_HIERARCHIES = {"Ανεμιστήρες Δαπέδου", "Ανεμιστήρες Επιτραπέζιοι"}
+
+# 🧪 Optional test-list filter (leave empty to show ALL 136 fans).
+FAN_TEST_SKUS = set()
+
+# Price tiers tuned to the observed fan range (€7–798, median €58, p75 €99).
+FAN_TIER_THRESHOLDS = {'Mid': 60, 'Premium': 150}
+FAN_TIER_NAMES = ['Entry', 'Mid', 'Premium']
+
+# (rank, role_label, (sheet, hierarchies), logic_key, max_round_1, max_total,
+#  budget_category) — sheet ∈ {AIR, SPARE, PROD}; hierarchies=None means the
+# engine derives the pool itself (the complement slot flips the fan type).
+# Round-1 = 8 distinct roles; complement/smart-plug/dehum/πολύπριζο absorb the
+# remaining 2 slots in later rounds → the carousel always reaches 10.
+FAN_PRIORITY = [
+    (1, 'Θερμόμετρο/Υγρόμετρο',        ('AIR',   ['WEATHER GADGETS']),            'FAN_HYGROMETER', 1, 1, 'monitor'),
+    (2, 'Συμπληρωματικός Ανεμιστήρας', ('AIR',   None),                           'FAN_COMPLEMENT', 1, 3, 'fan2'),
+    (3, 'Έξυπνη Πρίζα',                ('SPARE', ['ΕΞΥΠΝΕΣ ΠΡΙΖΕΣ']),             'FAN_SMARTPLUG',  1, 2, 'smartplug'),
+    (4, 'Φορητό Κλιματιστικό',         ('AIR',   ['Φορητά Κλιματιστικά']),        'FAN_GENERIC',    1, 1, 'portable_ac'),
+    (5, 'Αφυγραντήρας',                ('AIR',   ['Αφυγραντήρες']),               'FAN_GENERIC',    1, 2, 'dehum'),
+    (6, 'Πολύπριζο',                   ('PROD',  ['SURGE PROTECTORS']),           'FAN_POWERSTRIP', 1, 2, 'surge'),
+    (7, 'Καθαριστής Αέρα',             ('AIR',   ['Καθαριστές Αέρα', 'Ιονιστές']),'FAN_CLEANAIR',   1, 1, 'clean_air'),
+    (8, 'Μετεωρολογικός Σταθμός',      ('AIR',   ['WEATHER GADGETS']),            'FAN_STATION',    1, 1, 'monitor'),
+]
+FAN_SLOT_TARGET = 10
+
+# Per-tier HARD budget caps (€) — a companion above the cap for the trigger's
+# tier is DROPPED before scoring (hard gate, not a penalty). portable_ac is a
+# deliberate UPGRADE slot, so its cap stays generous even for Entry fans (the
+# cheapest portable AC in stock is €329 — a tight cap would empty the slot).
+FAN_BUDGET = {
+    'Entry':   {'monitor': 25, 'fan2': 90,  'smartplug': 30, 'portable_ac': 400,
+                'dehum': 200, 'surge': 25, 'clean_air': 200},
+    'Mid':     {'monitor': 40, 'fan2': 170, 'smartplug': 45, 'portable_ac': 550,
+                'dehum': 320, 'surge': 35, 'clean_air': 400},
+    'Premium': {'monitor': 60, 'fan2': 850, 'smartplug': 60, 'portable_ac': 950,
+                'dehum': 650, 'surge': 50, 'clean_air': 1250},
+}
+
+# Static fallback copy (per-role). The engine overrides the smart-plug copy
+# dynamically when the trigger has no remote — see _fan_marketing().
+FAN_MARKETING_COPY = {
+    "Θερμόμετρο/Υγρόμετρο":        "Δες πόση ζέστη κάνει πραγματικά — ξέρε πότε να ανάψεις τον ανεμιστήρα.",
+    "Συμπληρωματικός Ανεμιστήρας": "Δροσιά και στο δεύτερο χώρο — συνδύασε δαπέδου και επιτραπέζιο.",
+    "Έξυπνη Πρίζα":                "Προγραμμάτισε τον ανεμιστήρα να ανάβει πριν γυρίσεις σπίτι.",
+    "Φορητό Κλιματιστικό":         "Όταν ο ανεμιστήρας δεν φτάνει — πραγματική ψύξη χωρίς εγκατάσταση.",
+    "Αφυγραντήρας":                "Λιγότερη υγρασία — η ίδια θερμοκρασία νιώθει πιο δροσερή.",
+    "Πολύπριζο":                   "Τοποθέτησε τον ανεμιστήρα όπου θέλεις — ασφαλής παροχή ρεύματος.",
+    "Καθαριστής Αέρα":             "Ο ανεμιστήρας κυκλοφορεί τον αέρα — ο καθαριστής τον καθαρίζει.",
+    "Μετεωρολογικός Σταθμός":      "Θερμοκρασία, υγρασία και πρόγνωση με μια ματιά.",
+}
+
+# Scoring weights (same order of magnitude as the DH / WM / Fridge engines).
+FAN_S_AVAILABILITY    =  100_000   # In-stock boost
+FAN_S_BRAND_MATCH     =  400_000   # Trigger brand == candidate brand
+FAN_S_REMOTE_PARITY   =  150_000   # Complement fan matches trigger's remote feature
+FAN_S_COLOR_MATCH     =   80_000   # Complement fan shares a colour with the trigger
+FAN_S_PRICE_SAME_TIER =  200_000   # Same price tier (appropriate companion scale)
+FAN_S_PRICE_ONE_OFF   =   70_000   # ±1 price tier
+FAN_S_COMBO_REDUNDANT = -500_000   # Trigger already purifies → demote fan+purifier combos
+                                   # (must outweigh BRAND_MATCH so a dedicated purifier wins)
+FAN_S_SALES_FACTOR    =      0.5   # Sales tiebreaker weight
 
 
 def get_clima_tier_by_btu(price, btu):
@@ -9168,6 +9248,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 9h20'/%3E%3Cpath d='M2 15h20'/%3E%3Cpath d='M6 4l-2 5 2 5-2 5'/%3E%3Cpath d='M18 4l-2 5 2 5-2 5'/%3E%3Cpath d='M12 4v16'/%3E%3C/svg%3E"},
         {"key": "DehumidifiersIonizers", "label": "Αφυγραντήρες\n& Ιονιστές",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3s5 5.5 5 9a5 5 0 0 1-10 0c0-3.5 5-9 5-9z'/%3E%3Cpath d='M9.5 12.5a2.5 2.5 0 0 0 5 0'/%3E%3C/svg%3E"},
+        {"key": "Fans", "label": "Ανεμιστήρες",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='1.8'/%3E%3Cpath d='M12 10.2c0-3 1.5-6.2 4-6.2 2 0 3 1.6 3 3.2 0 2.4-3.5 3-7 3z'/%3E%3Cpath d='M10.4 13c-2.6 1.5-6.1 1.9-7.4-.3-1-1.7-.1-3.4 1.3-4.2 2.1-1.2 4.7 1.2 6.1 4.5z'/%3E%3Cpath d='M13.6 13c2.6 1.5 4.6 4.4 3.4 6.5-1 1.7-2.9 1.8-4.3 1-2.1-1.2-1.2-4.2.9-7.5z'/%3E%3C/svg%3E"},
     ],
     "Personal Care": [
         {"key": "Straighteners", "label": "Ισιωτικά\nΜαλλιών",
@@ -9815,6 +9897,28 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Συσκευή Αέρα</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", air_pool['Title'].unique(), label_visibility="collapsed", key="dehum_sel")
                 trigger = air_pool[air_pool['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "Fans":
+        # v28.59 — Ανεμιστήρες (Δαπέδου + Επιτραπέζιοι). Triggers live in the
+        # Air sheet; the two hierarchies share one dropdown — the engine routes
+        # the complement slot to the opposite type.
+        if df_air.empty:
+            st.sidebar.warning("Το sheet 'Air' είναι άδειο.")
+        else:
+            hier_clean = df_air['Hierarchy'].fillna('').astype(str).str.strip()
+            fan_pool = df_air[hier_clean.isin(FAN_TRIGGER_HIERARCHIES)].copy()
+
+            # 🧪 Optional test-list filter (leave FAN_TEST_SKUS empty to show all)
+            if FAN_TEST_SKUS:
+                mat_clean = fan_pool['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                fan_pool = fan_pool[mat_clean.isin(FAN_TEST_SKUS)]
+
+            if fan_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Ανεμιστήρες στο sheet Air.")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Ανεμιστήρα</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", fan_pool['Title'].unique(), label_visibility="collapsed", key="fan_sel")
+                trigger = fan_pool[fan_pool['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster == "TVs":
         if df_products.empty: st.stop()
@@ -18243,6 +18347,417 @@ def run_dehumidifier_engine(trigger, df_air, df_history):
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_num}/{DH_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 FANS ENGINE — Ανεμιστήρες Δαπέδου / Επιτραπέζιοι (v28.59)
+# ═════════════════════════════════════════════════════════════
+# Hybrid spec × brand × sales engine. Pattern mirrors run_dehumidifier_engine
+# (same Air-sheet family) to keep the codebase consistent; pools additionally
+# span the Spare sheet (ΕΞΥΠΝΕΣ ΠΡΙΖΕΣ) and Products (SURGE PROTECTORS).
+
+def _fan_price_tier(price: float) -> int:
+    """0 = Entry (<€60), 1 = Mid (€60-150), 2 = Premium (>€150)."""
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        return 0
+    if p >= FAN_TIER_THRESHOLDS['Premium']:
+        return 2
+    if p >= FAN_TIER_THRESHOLDS['Mid']:
+        return 1
+    return 0
+
+
+def _fan_trigger_type(hierarchy: str) -> str:
+    """Classify the trigger fan: 'FLOOR' (Δαπέδου) / 'TABLE' (Επιτραπέζιοι)."""
+    h = str(hierarchy or '').strip()
+    return 'TABLE' if 'Επιτραπέζ' in h else 'FLOOR'
+
+
+def _fan_has_remote(val) -> bool:
+    """Parse the Τηλεχειριστήριο column. The data uses 4 spellings:
+    Ναι/Όχι and Διαθέτει/Δε διαθέτει — normalise all of them."""
+    s = str(val or '').strip().lower()
+    if not s or s in ('nan', 'none'):
+        return False
+    return s.startswith('ναι') or s == 'διαθέτει'
+
+
+def _fan_colors(val) -> set:
+    """Split the Χρώμα column into a colour set ('Ασημί;Λευκό' → 2 colours)."""
+    s = str(val or '').strip()
+    if not s or s.lower() in ('nan', 'none'):
+        return set()
+    return {c.strip() for c in s.split(';') if c.strip()}
+
+
+def _fan_marketing(role_label: str, trigger_has_remote: bool,
+                   trigger_type: str) -> str:
+    """Trigger-aware copy. The smart-plug slot reframes as the MISSING REMOTE
+    when the trigger fan has none (67/136 fans); the complement slot names the
+    type it actually shows (table fan for a floor trigger and vice versa)."""
+    if role_label == 'Έξυπνη Πρίζα' and not trigger_has_remote:
+        return "Ο ανεμιστήρας σου δεν έχει τηλεχειριστήριο — έλεγξέ τον από το κινητό."
+    if role_label == 'Συμπληρωματικός Ανεμιστήρας':
+        if trigger_type == 'FLOOR':
+            return "Πρόσθεσε έναν επιτραπέζιο — δροσιά και στο γραφείο ή το κομοδίνο."
+        return "Πρόσθεσε έναν δαπέδου — δροσιά για ολόκληρο το δωμάτιο."
+    return FAN_MARKETING_COPY.get(role_label, "Ιδανική επιλογή!")
+
+
+def _fan_base_scoring(pool):
+    """Shared base: in-stock boost + sales tiebreaker."""
+    pool['Final_Score'] = 0.0
+    if 'AVAILABILITY' in pool.columns:
+        pool.loc[pool['AVAILABILITY'] == 'Άμεσα Διαθέσιμο', 'Final_Score'] += FAN_S_AVAILABILITY
+    pool['Final_Score'] += pool['Sales_Tiebreaker'].fillna(0) * FAN_S_SALES_FACTOR
+    return pool
+
+
+def _fan_tier_proximity(pool, ttier):
+    """Price-tier proximity boosts (same tier > ±1 tier)."""
+    cand_tier = pool['_p'].apply(_fan_price_tier)
+    pool.loc[cand_tier == ttier, 'Final_Score'] += FAN_S_PRICE_SAME_TIER
+    pool.loc[(cand_tier - ttier).abs() == 1, 'Final_Score'] += FAN_S_PRICE_ONE_OFF
+    return pool
+
+
+def _fan_build_hygrometer_pool(c_pool, notes):
+    """WEATHER GADGETS filtered to thermometer/hygrometer titles (excludes full
+    weather stations — those get their own slot 8). Cheap high-attach monitor."""
+    if c_pool.empty:
+        return c_pool
+    pool = c_pool.copy()
+    hygro_mask = pool['Title'].fillna('').astype(str).str.contains(
+        r'υγρ|υγρασ|θερμόμετρ|hygro', case=False, na=False)
+    pool = pool[hygro_mask].copy()
+    if pool.empty:
+        notes.append("  ⚠ No hygrometer-type titles in WEATHER GADGETS")
+        return pool
+    notes.append(f"  Hygrometer pool: {len(pool)}")
+    return _fan_base_scoring(pool).sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_station_pool(c_pool, notes):
+    """WEATHER GADGETS that are NOT bare thermo/hygrometers — actual weather
+    stations — so slot 8 matches its label. Falls back to any gadget."""
+    if c_pool.empty:
+        return c_pool
+    pool = c_pool.copy()
+    hygro_mask = pool['Title'].fillna('').astype(str).str.contains(
+        r'υγρ|υγρασ|θερμόμετρ|hygro', case=False, na=False)
+    stations = pool[~hygro_mask].copy()
+    if stations.empty:
+        notes.append("  No dedicated weather stations after cap — using any gadget")
+        stations = pool.copy()
+    else:
+        notes.append(f"  Weather-station pool: {len(stations)} (hygrometers excluded)")
+    return _fan_base_scoring(stations).sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_complement_pool(c_pool, trigger_type, tbrand, tcolors,
+                               t_remote, ttier, notes):
+    """Complementary fan = OPPOSITE hierarchy only (floor trigger → table fans,
+    table trigger → floor fans) — same-hierarchy exclusion holds by design.
+    Scored on brand affinity + colour match + remote-feature parity +
+    price-tier proximity + in-stock + sales."""
+    target_hier = ('Ανεμιστήρες Επιτραπέζιοι' if trigger_type == 'FLOOR'
+                   else 'Ανεμιστήρες Δαπέδου')
+    pool = c_pool[c_pool['Hierarchy'].fillna('').astype(str).str.strip()
+                  == target_hier].copy()
+    notes.append(f"  Complement type: {target_hier} → {len(pool)} candidates "
+                 f"(trigger is {trigger_type}, same hierarchy excluded)")
+    if pool.empty:
+        return pool
+    pool = _fan_base_scoring(pool)
+
+    # Brand affinity — Κατασκευαστής is populated 136/136 on fans.
+    if tbrand and 'Κατασκευαστής' in pool.columns:
+        same_brand = (pool['Κατασκευαστής'].fillna('').astype(str)
+                      .str.upper().str.strip() == tbrand)
+        pool.loc[same_brand, 'Final_Score'] += FAN_S_BRAND_MATCH
+        if same_brand.any():
+            notes.append(f"  ✓ Brand affinity ({tbrand}): {int(same_brand.sum())} "
+                         f"(+{FAN_S_BRAND_MATCH:,})")
+
+    # Colour match — a matching second fan looks like a set in the same room.
+    if tcolors and 'Χρώμα' in pool.columns:
+        col_match = pool['Χρώμα'].apply(lambda v: bool(_fan_colors(v) & tcolors))
+        pool.loc[col_match, 'Final_Score'] += FAN_S_COLOR_MATCH
+        if col_match.any():
+            notes.append(f"  ✓ Colour match ({'/'.join(sorted(tcolors))}): "
+                         f"{int(col_match.sum())} (+{FAN_S_COLOR_MATCH:,})")
+
+    # Remote parity — a remote-control buyer expects the feature again.
+    if t_remote and 'Τηλεχειριστήριο' in pool.columns:
+        has_rem = pool['Τηλεχειριστήριο'].apply(_fan_has_remote)
+        pool.loc[has_rem, 'Final_Score'] += FAN_S_REMOTE_PARITY
+        notes.append(f"  ✓ Remote parity: {int(has_rem.sum())} candidates with "
+                     f"remote (+{FAN_S_REMOTE_PARITY:,})")
+
+    pool = _fan_tier_proximity(pool, ttier)
+    return pool.sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_smartplug_pool(c_pool, t_remote, notes):
+    """ΕΞΥΠΝΕΣ ΠΡΙΖΕΣ (Spare sheet). Universal accessory — no brand gate
+    needed (a Tapo plug powers any fan). In-stock + sales ranked; the
+    remote-aware framing happens in the marketing copy, not the ranking."""
+    if c_pool.empty:
+        return c_pool
+    pool = c_pool.copy()
+    notes.append(f"  Smart-plug pool: {len(pool)} | trigger "
+                 f"{'HAS' if t_remote else 'has NO'} remote → "
+                 f"{'convenience' if t_remote else 'missing-remote'} framing")
+    return _fan_base_scoring(pool).sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_powerstrip_pool(c_pool, notes):
+    """SURGE PROTECTORS (Products sheet) filtered to actual πολύπριζα /
+    προεκτάσεις (the hierarchy also carries travel adaptors & USB chargers).
+    Falls back to the full pool if the title filter empties it."""
+    if c_pool.empty:
+        return c_pool
+    pool = c_pool.copy()
+    strip_mask = pool['Title'].fillna('').astype(str).str.contains(
+        r'πολύπριζ|μονόπριζ|προέκτασ|ταφ\b', case=False, na=False)
+    strips = pool[strip_mask].copy()
+    if strips.empty:
+        notes.append("  No πολύπριζο-type titles after cap — using full pool")
+        strips = pool.copy()
+    else:
+        notes.append(f"  Πολύπριζο pool: {len(strips)} (adaptors/chargers excluded)")
+    return _fan_base_scoring(strips).sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_cleanair_pool(c_pool, tbrand, ttier, trigger_is_combo, notes):
+    """Καθαριστές Αέρα + Ιονιστές. Brand affinity (a Dyson fan buyer sees the
+    Dyson purifier first) + price-tier proximity + in-stock + sales. Brand is
+    title-parsed here — Κατασκευαστής is empty on purifiers/ionisers.
+    Combo-aware: when the trigger fan ALREADY purifies (e.g. Dyson TP09
+    'Ανεμιστήρας & Καθαριστής Αέρα'), other fan+purifier combos are redundant —
+    demoted so a DEDICATED purifier surfaces instead."""
+    if c_pool.empty:
+        return c_pool
+    pool = _fan_base_scoring(c_pool.copy())
+    if tbrand:
+        cand_brand = pool['Title'].fillna('').astype(str).apply(_dh_parse_brand)
+        same_brand = cand_brand == tbrand
+        pool.loc[same_brand, 'Final_Score'] += FAN_S_BRAND_MATCH
+        if same_brand.any():
+            notes.append(f"  ✓ Brand affinity ({tbrand}): {int(same_brand.sum())} "
+                         f"(+{FAN_S_BRAND_MATCH:,})")
+    if trigger_is_combo:
+        # NB: match 'νεμιστήρ' (no leading letter) — the data mixes Latin 'A'
+        # with Greek 'α' in titles like 'DYSON TP00 Aνεμιστήρας' (Latin A!).
+        is_fan_combo = pool['Title'].fillna('').astype(str).str.contains(
+            r'νεμιστήρ', case=False, na=False)
+        pool.loc[is_fan_combo, 'Final_Score'] += FAN_S_COMBO_REDUNDANT
+        if is_fan_combo.any():
+            notes.append(f"  ✓ Combo trigger (already purifies) → demote "
+                         f"{int(is_fan_combo.sum())} fan+purifier combo(s), "
+                         f"steer to dedicated purifier")
+    pool = _fan_tier_proximity(pool, ttier)
+    return pool.sort_values('Final_Score', ascending=False)
+
+
+def _fan_build_generic_pool(c_pool, ttier, notes, role_label):
+    """Generic companion scoring (portable AC, dehumidifier): in-stock + sales
+    + light price-tier proximity so the suggested scale matches the trigger."""
+    if c_pool.empty:
+        return c_pool
+    pool = _fan_tier_proximity(_fan_base_scoring(c_pool.copy()), ttier)
+    notes.append(f"  Companion pool ({role_label}): {len(pool)}")
+    return pool.sort_values('Final_Score', ascending=False)
+
+
+def run_fans_engine(trigger, df_air, df_spare, df_products, df_history):
+    """Build exactly 10 cross-sell slots for a fan trigger (Ανεμιστήρες
+    Δαπέδου / Επιτραπέζιοι). HYBRID spec × brand × sales — co-purchase history
+    is unusable for fans (7 baskets), so the recommendation depth comes from
+    the spec layer: Τηλεχειριστήριο drives the smart-plug framing, the
+    complement slot flips to the opposite fan type with brand/colour/remote
+    matching, and per-tier HARD budget caps drop price-inappropriate
+    companions before scoring. Round-robin loop fills 10 slots, over-filling
+    surviving pools so the carousel never under-fills."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    thier = str(trigger.get('Hierarchy', ''))
+    tprice = parse_euro_price(trigger.get('LIST PRICE', 0))
+    ttier = _fan_price_tier(tprice)
+    tier_name = FAN_TIER_NAMES[ttier]
+    trigger_type = _fan_trigger_type(thier)
+    t_remote = _fan_has_remote(trigger.get('Τηλεχειριστήριο', ''))
+    tcolors = _fan_colors(trigger.get('Χρώμα', ''))
+    # Κατασκευαστής is populated 136/136 on fans, but normalise the
+    # str(NaN)='nan' truthy trap anyway, with a Title-parse fallback.
+    _tb_col = str(trigger.get('Κατασκευαστής', '') or '').strip()
+    if _tb_col.lower() in ('', 'nan', 'none'):
+        _tb_col = ''
+    tbrand = (_tb_col or _dh_parse_brand(str(trigger.get('Title', '')))).upper().strip()
+    # Combo fans (e.g. Dyson 'Ανεμιστήρας & Καθαριστής Αέρα') already purify —
+    # the clean-air slot then steers to a DEDICATED purifier.
+    trigger_is_combo = _dh_is_combo(str(trigger.get('Title', '')))
+
+    diag.append(("0. Trigger",
+                 f"{tbrand or '—'} €{tprice:.0f}",
+                 f"type={trigger_type} | remote={'yes' if t_remote else 'no'} | "
+                 f"tier={tier_name} | combo={trigger_is_combo} | "
+                 f"colours={'/'.join(sorted(tcolors)) or '—'}"))
+
+    if df_air is None or df_air.empty:
+        diag.append(("ERROR", 0, "Air sheet is empty — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    # ── Per-sheet base candidates (dedup + numeric columns) ──────────────
+    def _prep(df, label):
+        if df is None or df.empty:
+            diag.append((f"1. Base ({label})", 0, "sheet empty / not loaded"))
+            return pd.DataFrame()
+        c = df[df['Material'] != tm].copy()
+        c = c.drop_duplicates(subset=['Material'], keep='first')
+        c['Sales_Tiebreaker'] = pd.to_numeric(c.get('Sum of Sales', 0), errors='coerce').fillna(0)
+        c['_p'] = c['LIST PRICE'].apply(parse_euro_price) if 'LIST PRICE' in c.columns else 0.0
+        diag.append((f"1. Base ({label})", len(c), "deduped, trigger excluded"))
+        return c
+
+    bases = {'AIR': _prep(df_air, 'Air'),
+             'SPARE': _prep(df_spare, 'Spare'),
+             'PROD': _prep(df_products, 'Products')}
+
+    # ── Pre-build & score every pool ──────────────────────────────────────
+    pools = {}  # rank → (role_label, scored_df, logic_key, max_r1, max_total, notes)
+    for rank, role_label, (sheet, hiers), logic_key, max_r1, max_total, budget_cat in FAN_PRIORITY:
+        notes = [f"=== Priority {rank}: {role_label} ({logic_key}, sheet={sheet}) "
+                 f"| max_round_1={max_r1} | max_total={max_total if max_total else '∞'} ==="]
+        base = bases.get(sheet, pd.DataFrame())
+        if base.empty:
+            notes.append(f"  ⚠ {sheet} base empty — slot filled from other pools")
+            pools[rank] = (role_label, pd.DataFrame(), logic_key, max_r1, max_total, notes)
+            continue
+
+        if hiers is None:
+            base_pool = base.copy()   # FAN_COMPLEMENT derives its own hierarchy
+            notes.append("  Pool derives hierarchy itself (complement slot)")
+        else:
+            hier_set = {h.strip() for h in hiers}
+            base_pool = base[base['Hierarchy'].fillna('').astype(str)
+                             .str.strip().isin(hier_set)].copy()
+            notes.append(f"  Base pool size: {len(base_pool)} (hierarchies={hiers})")
+
+        # ── HARD budget cap for this trigger tier ──
+        cap = FAN_BUDGET.get(tier_name, {}).get(budget_cat)
+        if cap is not None and not base_pool.empty:
+            before = len(base_pool)
+            base_pool = base_pool[base_pool['_p'] <= cap]
+            notes.append(f"  Budget cap [{budget_cat} @ {tier_name}]: ≤€{cap} "
+                         f"→ {len(base_pool)}/{before} survive")
+
+        if base_pool.empty:
+            notes.append("  ⚠ Pool empty (missing hierarchy or all over budget) "
+                         "— slot will be filled from other pools")
+            pools[rank] = (role_label, pd.DataFrame(), logic_key, max_r1, max_total, notes)
+            continue
+
+        if logic_key == 'FAN_HYGROMETER':
+            scored = _fan_build_hygrometer_pool(base_pool, notes)
+        elif logic_key == 'FAN_STATION':
+            scored = _fan_build_station_pool(base_pool, notes)
+        elif logic_key == 'FAN_COMPLEMENT':
+            scored = _fan_build_complement_pool(base_pool, trigger_type, tbrand,
+                                                tcolors, t_remote, ttier, notes)
+        elif logic_key == 'FAN_SMARTPLUG':
+            scored = _fan_build_smartplug_pool(base_pool, t_remote, notes)
+        elif logic_key == 'FAN_POWERSTRIP':
+            scored = _fan_build_powerstrip_pool(base_pool, notes)
+        elif logic_key == 'FAN_CLEANAIR':
+            scored = _fan_build_cleanair_pool(base_pool, tbrand, ttier,
+                                              trigger_is_combo, notes)
+        else:  # FAN_GENERIC
+            scored = _fan_build_generic_pool(base_pool, ttier, notes, role_label)
+
+        pools[rank] = (role_label, scored, logic_key, max_r1, max_total, notes)
+        diag.append((f"Pool {rank} ({role_label})",
+                     len(scored) if scored is not None else 0, logic_key))
+
+    # ── Round-robin fill until 10 slots or all pools exhausted ────────────
+    used_materials = {tm}
+    pool_cursors = {rank: 0 for rank in pools}
+    pool_taken = {rank: 0 for rank in pools}
+    slot_num = 0
+    round_idx = 0
+
+    while slot_num < FAN_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, logic_key, max_r1, max_total, notes) in pools.items():
+            if slot_num >= FAN_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and pool_taken[rank] >= max_total:
+                continue
+
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - pool_taken[rank])
+
+            cursor = pool_cursors[rank]
+            taken_this_pass = 0
+            while taken_this_pass < take_n and cursor < len(scored) \
+                    and slot_num < FAN_SLOT_TARGET:
+                row = scored.iloc[cursor]
+                cursor += 1
+                if row['Material'] in used_materials:
+                    continue
+                slot_num += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_num
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = _fan_marketing(role_label, t_remote, trigger_type)
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used_materials.add(row['Material'])
+                taken_this_pass += 1
+                pool_taken[rank] += 1
+                progress = True
+
+                if slot_num not in slot_notes:
+                    slot_notes[slot_num] = []
+                slot_notes[slot_num].append(
+                    f"Round {round_idx} | Pool '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('Title', ''))[:70]}"
+                )
+            pool_cursors[rank] = cursor
+
+        if not progress:
+            diag.append(("Loop", round_idx, "All pools exhausted or capped — stopping"))
+            break
+
+    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
+    pool_diag_notes = []
+    for rank, (role_label, scored, logic_key, max_r1, max_total, notes) in pools.items():
+        pool_diag_notes.extend(notes)
+        cap_note = f" (capped at {max_total})" if max_total is not None else ""
+        pool_diag_notes.append(
+            f"  → consumed {pool_taken[rank]} / "
+            f"{len(scored) if scored is not None else 0} from this pool{cap_note}")
+        pool_diag_notes.append("")
+    slot_notes[0] = pool_diag_notes
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_num}/{FAN_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -32945,6 +33460,17 @@ elif active_cluster == "DehumidifiersIonizers":
     # water-tank proximity layered on. Humidity monitor leads at slot 1.
     recs, diag, slot_notes, full_candidates = run_dehumidifier_engine(trigger, df_air, df_history)
     slot_diag = []
+elif active_cluster == "Fans":
+    # v28.59 — Ανεμιστήρες (Δαπέδου + Επιτραπέζιοι) summer-comfort cross-sell.
+    # HYBRID spec × brand × sales (co-purchase history unusable — 7 baskets).
+    # Pools span Air (gadgets / portable AC / dehum / clean air), Spare
+    # (ΕΞΥΠΝΕΣ ΠΡΙΖΕΣ) and Products (SURGE PROTECTORS = πολύπριζα). Complement
+    # slot flips to the OPPOSITE fan type with brand/colour/remote matching;
+    # smart-plug copy reframes as the missing remote when the trigger has
+    # none; per-tier HARD budget caps drop price-inappropriate companions.
+    recs, diag, slot_notes, full_candidates = run_fans_engine(
+        trigger, df_air, df_spare, df_products, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -33130,6 +33656,10 @@ if not recs.empty:
             # Trigger-aware per-row copy (upgrade vs alternative framing); falls
             # back to the static per-role dict.
             marketing_text = str(r.get('Marketing_Copy', DH_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
+        elif active_cluster == "Fans":
+            # Trigger-aware per-row copy (missing-remote smart-plug framing,
+            # complement-type naming); falls back to the static per-role dict.
+            marketing_text = str(r.get('Marketing_Copy', FAN_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -33163,6 +33693,8 @@ if not recs.empty:
         header_text = "Ολοκλήρωσε το setup σου"
     elif active_cluster == "DehumidifiersIonizers":
         header_text = "Ολοκλήρωσε το υγιεινό σου σπίτι"
+    elif active_cluster == "Fans":
+        header_text = "Δροσιά σε όλο το σπίτι"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -33301,6 +33833,21 @@ with st.expander("⚙️ System Diagnostics"):
         st.markdown(
             f"**Album format:** `{t_fmt_kp}` | **Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
+    elif active_cluster == "Fans":
+        # v28.59 — fan diagnostic surface: the spec signals the engine routes
+        # on (type / brand / remote / colour / tier).
+        t_type_fn = _fan_trigger_type(trigger.get('Hierarchy', ''))
+        t_rem_fn = _fan_has_remote(trigger.get('Τηλεχειριστήριο', ''))
+        t_col_fn = '/'.join(sorted(_fan_colors(trigger.get('Χρώμα', '')))) or '—'
+        t_pr_fn = parse_euro_price(trigger.get('LIST PRICE', 0))
+        st.markdown(
+            f"**Type:** `{t_type_fn}` | **Brand:** `{str(trigger.get('Κατασκευαστής','')).strip()}` | "
+            f"**Remote:** `{'Ναι' if t_rem_fn else 'Όχι'}`"
+        )
+        st.markdown(
+            f"**Colour(s):** `{t_col_fn}` | **Tier:** `{FAN_TIER_NAMES[_fan_price_tier(t_pr_fn)]}` "
+            f"(€{t_pr_fn:.0f}) | **Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
 
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
@@ -33339,6 +33886,14 @@ with st.expander("⚙️ System Diagnostics"):
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Καλλιτέχνης','Καλλιτέχνης.1','Είδος','Μορφή άλμπουμ',
                               'Έτος Παραγωγής','Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Fans":
+        # v28.59 — fan attributes: the spec columns the hybrid engine actually
+        # scores against (remote / brand / colour / type) plus context.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Τύπος συσκευής','Είδος',
+                              'Τηλεχειριστήριο','Χρώμα','Επίπεδα ταχύτητας',
+                              'Ισχύς','Διάμετρος','Περιστροφή',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
     elif active_cluster == "Greek School Books":
         # v28.30 — school book attributes: class + subject + publisher
         # drive the recommendation; show those plus general bibliographic
