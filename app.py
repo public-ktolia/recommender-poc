@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.5-2026-06-11"
+APP_BUILD = "parquet-v28.61.6-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.5 — Σχολικές Τσάντες: slot τετραδίων = πραγματικά σχολικά τετράδια (όχι Moleskine/σημειωματάρια) + κασετίνα 1η για εφηβικό/ενηλίκων + colour/character/τιμή.
+        🟢 Engine v28.61.6 — Σχολικές Τσάντες: εφηβικό/ενηλίκων kit με βασικά μαθητικά (μολύβια/γόμα/ξύστρα, 1 ντοσιέ) + πραγματικά τετράδια + κασετίνα 1η + colour/character.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1519,19 +1519,22 @@ SCHOOLBAG_PRIMARY_SLOTS = [
 # TEEN/ADULT — Γυμνάσιο-Λύκειο + lifestyle. Study & organise, sales-ordered
 # (notebooks, gel pens, highlighters, document wallets all top sellers).
 SCHOOLBAG_TEEN_SLOTS = [
-    # v28.61.4 — Κασετίνα leads for teen/adult bags (e.g. matching Eastpak Up
-    # Case on an Eastpak); notebooks drop to #2, the rest cascade down.
-    (1,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
-    (2,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ"],                                              1, 2),
-    (3,  'Στυλό Gel',        'PEN_GEL',  ["ΣΤΥΛΟ GEL"],                                             1, 1),
-    (4,  'Μαρκαδόροι Υπογρ.','HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                              1, 1),
-    (5,  'Φάκελοι Μεταφοράς','WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                    1, 1),
-    (6,  'Στυλό Διαρκείας',  'PEN_BALL', ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],                1, 1),
-    (7,  'Γεωμετρικά',       'GEOMETRY', ["ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                 1, 1),
-    (8,  'Διορθωτικά',       'CORRECT',  ["ΔΙΟΡΘΩΤΙΚΑ"],                                            1, 1),
-    (9,  'Ντοσιέ / Post-it', 'FOLDER',   ["ΝΤΟΣΙΕ", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ",
-                                          "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"],                            1, 1),
-    (10, 'Παγούρι',          'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                         1, 2),
+    # v28.61.6 — student-staples kit. Κασετίνα leads (matching the bag's
+    # brand), notebooks #2, then the actual staples a Γυμνάσιο/Λύκειο/uni
+    # student buys: pencils (#2 seller), gel pen, highlighter, eraser,
+    # sharpener. ONE folder only — the big-selling Φάκελοι Μεταφοράς
+    # (document wallets); the redundant ring-binder/Post-it slot, the 2nd
+    # (premium) ballpoint slot, and the correction-tape filler are removed.
+    (1,  'Κασετίνα',         'CASE',      ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                       1, 1),
+    (2,  'Τετράδια',         'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ"],                                             1, 2),
+    (3,  'Μολύβια',          'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                              1, 1),
+    (4,  'Στυλό Gel',        'PEN_GEL',   ["ΣΤΥΛΟ GEL"],                                            1, 1),
+    (5,  'Μαρκαδόροι Υπογρ.', 'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                             1, 1),
+    (6,  'Γόμα',             'ERASER',    ["ΓΟΜΕΣ"],                                                1, 1),
+    (7,  'Ξύστρα',           'SHARP',     ["ΞΥΣΤΡΕΣ"],                                              1, 1),
+    (8,  'Φάκελοι Μεταφοράς', 'WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                   1, 1),
+    (9,  'Γεωμετρικά',       'GEOMETRY',  ["ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                1, 1),
+    (10, 'Παγούρι',          'BOTTLE',    ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                        1, 2),
 ]
 
 SCHOOLBAG_MARKETING_COPY = {
