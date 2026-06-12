@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.3-2026-06-11"
+APP_BUILD = "parquet-v28.61.4-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.3 — Σχολικές Τσάντες: 3 ηλικιακά kit (νήπιο/δημοτικό/εφηβικό-ενηλίκων) με slots βάσει πωλήσεων + character-match + χρωματικός συνδυασμός + τιμή.
+        🟢 Engine v28.61.4 — Σχολικές Τσάντες: 3 ηλικιακά kit (κασετίνα 1η για εφηβικό/ενηλίκων) + character-match + χρωματικός συνδυασμός + τιμή· dropdown: top-10 σε πωλήσεις.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1451,6 +1451,9 @@ SCHOOLBAG_SLOT_TARGET = 10
 
 # 🧪 Optional test-list filter (leave empty to show ALL 1.263 bags).
 SCHOOLBAG_TEST_SKUS = set()
+# 🧪 Optional: limit the sidebar dropdown to the top-N best-selling bags (by
+#    Sum of Sales). Set to None/0 to show every bag. Used for quick testing.
+SCHOOLBAG_TEST_TOP_N = 10
 
 # ── Companion hierarchies that make up a back-to-school kit. Every value
 #    here exists in the Stationery sheet (and most also in Books). Anything
@@ -1516,13 +1519,15 @@ SCHOOLBAG_PRIMARY_SLOTS = [
 # TEEN/ADULT — Γυμνάσιο-Λύκειο + lifestyle. Study & organise, sales-ordered
 # (notebooks, gel pens, highlighters, document wallets all top sellers).
 SCHOOLBAG_TEEN_SLOTS = [
-    (1,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
-    (2,  'Στυλό Gel',        'PEN_GEL',  ["ΣΤΥΛΟ GEL"],                                             1, 1),
-    (3,  'Μαρκαδόροι Υπογρ.','HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                              1, 1),
-    (4,  'Φάκελοι Μεταφοράς','WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                    1, 1),
-    (5,  'Στυλό Διαρκείας',  'PEN_BALL', ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],                1, 1),
-    (6,  'Γεωμετρικά',       'GEOMETRY', ["ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                 1, 1),
-    (7,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
+    # v28.61.4 — Κασετίνα leads for teen/adult bags (e.g. matching Eastpak Up
+    # Case on an Eastpak); notebooks drop to #2, the rest cascade down.
+    (1,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
+    (2,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
+    (3,  'Στυλό Gel',        'PEN_GEL',  ["ΣΤΥΛΟ GEL"],                                             1, 1),
+    (4,  'Μαρκαδόροι Υπογρ.','HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                              1, 1),
+    (5,  'Φάκελοι Μεταφοράς','WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                    1, 1),
+    (6,  'Στυλό Διαρκείας',  'PEN_BALL', ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],                1, 1),
+    (7,  'Γεωμετρικά',       'GEOMETRY', ["ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                 1, 1),
     (8,  'Διορθωτικά',       'CORRECT',  ["ΔΙΟΡΘΩΤΙΚΑ"],                                            1, 1),
     (9,  'Ντοσιέ / Post-it', 'FOLDER',   ["ΝΤΟΣΙΕ", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ",
                                           "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"],                            1, 1),
@@ -10321,6 +10326,12 @@ else:
             if SCHOOLBAG_TEST_SKUS and not sb_pool.empty:
                 mat_clean = sb_pool['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
                 sb_pool = sb_pool[mat_clean.isin(SCHOOLBAG_TEST_SKUS)]
+
+            # 🧪 Optional: keep only the top-N best-selling bags in the dropdown.
+            if SCHOOLBAG_TEST_TOP_N and not sb_pool.empty:
+                sb_pool = sb_pool.assign(
+                    _sb_sales=pd.to_numeric(sb_pool['Sum of Sales'], errors='coerce').fillna(0.0)
+                ).sort_values('_sb_sales', ascending=False).head(int(SCHOOLBAG_TEST_TOP_N))
 
             if sb_pool.empty:
                 st.sidebar.warning("Δεν βρέθηκαν Σχολικές Τσάντες στο sheet Stationery (Bags).")
