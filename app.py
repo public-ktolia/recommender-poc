@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.8-2026-06-12"
+APP_BUILD = "parquet-v28.61.9-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.8 — Σχολικές Τσάντες: φθηνές τσάντες → προτεραιότητα τιμής (χωρίς colour-match), brand-match (π.χ. Coolbee), όχι τυχαίοι χαρακτήρες· ακριβές τσάντες: colour+character όπως πριν.
+        🟢 Engine v28.61.9 — Σχολικές Τσάντες: σκέτη/γενική τσάντα → ουδέτερο μαθητικό kit (όχι παιδικό)· παιδικό kit μόνο με σήμα ηλικίας ή χαρακτήρα· φθηνές → τιμή, brand-match.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -19723,10 +19723,17 @@ def _scb_age_persona(trigger, t_licence):
     # Pre-school.
     if 'ΝΗΠΙ' in title or 'ΠΡΟΝΗΠΙ' in title or 'ΠΡΟΣΧΟΛΙΚ' in title:
         return 'NURSERY', 'Νηπίου/Προσχολικό'
-    # Primary, plus licensed/untagged bags (most of the catalogue).
+    # Explicit primary band.
     if 'ΔΗΜΟΤΙΚ' in title:
         return 'PRIMARY', 'Δημοτικού'
-    return 'PRIMARY', 'Δημοτικού'
+    # A kid-only character licence (Frozen, Barbie, Paw Patrol…) → it IS a
+    # young child's bag even without an age word in the title.
+    if t_licence in SCHOOLBAG_KID_ONLY_LICENCES:
+        return 'PRIMARY', 'Παιδικό (χαρακτήρας)'
+    # No kid signal at all → a plain / generic bag (often a cheap dark one) is
+    # rarely a small child's. Default to the NEUTRAL student kit, not the
+    # youngest tier — avoids Dino/Pirate/colouring-pencil picks on a plain bag.
+    return 'TEEN_ADULT', 'Ουδέτερο/Γενικό'
 
 
 # Map persona → slot list.
