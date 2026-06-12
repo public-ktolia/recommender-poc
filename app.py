@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.2-2026-06-11"
+APP_BUILD = "parquet-v28.61.3-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.2 — Σχολικές Τσάντες: character-match + χρωματικός συνδυασμός (μαύρη τσάντα→μαύρα/ουδέτερα, όχι teal) + ηλικία + τιμή· σχολικό kit 10 ειδών, καμία 2η τσάντα.
+        🟢 Engine v28.61.3 — Σχολικές Τσάντες: 3 ηλικιακά kit (νήπιο/δημοτικό/εφηβικό-ενηλίκων) με slots βάσει πωλήσεων + character-match + χρωματικός συνδυασμός + τιμή.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1457,69 +1457,104 @@ SCHOOLBAG_TEST_SKUS = set()
 #    NOT in this set is invisible to the engine — and ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ is
 #    deliberately absent (cross-sell, never a 2nd bag).
 SCHOOLBAG_COMPANION_HIERARCHIES = {
-    "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ",
+    # writing & core
+    "ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ", "ΜΟΛΥΒΙΑ",
+    "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ",
+    "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ", "ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ",
+    # colour & art (kids)
+    "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ",
+    "ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ", "ΜΠΛΟΚ-ΧΑΡΤΙΑ",
+    "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ", "ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ", "Collectable Cards",
+    # hydration & food
     "ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ",
-    "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ",
-    "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ", "ΜΑΡΚΑΔΟΡΟΙ",
-    "ΜΟΛΥΒΙΑ", "ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ",
-    "ΞΥΣΤΡΕΣ", "ΓΟΜΕΣ",
-    "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL",
-    "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ",
-    "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ",
-    "ΝΤΟΣΙΕ", "ΨΑΛΙΔΙΑ", "ΚΟΛΛΕΣ",
+    "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΦΑΓΗΤΟΔΟΧΕΙΑ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ",
+    # study & organise (teen / adult)
+    "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ", "ΝΤΟΣΙΕ",
+    "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ", "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ",
+    "ΔΙΟΡΘΩΤΙΚΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ",
+    "ΜΑΡΚΑΔΟΡΟΙ ΠΙΝΑΚΑ", "ΜΑΡΚΑΔΟΡΟΙ ΑΝΕΞΙΤΗΛΟΙ",
 }
 
-# ── Role → hierarchies + per-slot caps. (slot, role_label, role_key,
-#    [hierarchies], max_round_1, max_total). Two slot lists routed by the
-#    age persona (kids vs older/lifestyle) — mirrors the desktop persona
-#    pattern. role_key is the dedupe axis for the round-robin fill.
-SCHOOLBAG_KIDS_SLOTS = [
-    (1,  'Κασετίνα',        'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                 1, 2),
-    (2,  'Παγούρι',         'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                  1, 1),
-    (3,  'Φαγητοθήκη',      'LUNCH',    ["ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ",
-                                         "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                                 1, 1),
-    (4,  'Ξυλομπογιές',     'COLOR',    ["ΞΥΛΟΜΠΟΓΙΕΣ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΜΑΡΚΑΔΟΡΟΙ"], 1, 2),
-    (5,  'Μολύβια',         'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                        1, 1),
-    (6,  'Τετράδια',        'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                      1, 2),
-    (7,  'Ξύστρα',          'SHARP',    ["ΞΥΣΤΡΕΣ"],                                        1, 1),
-    (8,  'Γόμα',            'ERASER',   ["ΓΟΜΕΣ"],                                          1, 1),
-    (9,  'Στυλό',           'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                   1, 1),
-    (10, 'Αυτοκόλλητα',     'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ"],            1, 1),
+# ── AGE-BASED slot lists. Three personas keyed off the bag's title/brand:
+#   NURSERY (Νηπίου/Προσχολικά) · PRIMARY (Δημοτικού) · TEEN_ADULT
+#   (Γυμνάσιο-Λύκειο + lifestyle brands). Slot ORDER follows the companion
+#   SALES rank within each age band (notebooks/pencils/pens lead where they
+#   sell; nursery leads with hydration/food/colouring). Tuple is
+#   (slot, role_label, role_key, [hierarchies], max_round_1, max_total);
+#   role_key is the dedupe axis for the round-robin fill.
+
+# NURSERY — no pens / highlighters / geometry / folders; colour + lunch led.
+SCHOOLBAG_NURSERY_SLOTS = [
+    (1,  'Παγούρι',          'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                          1, 1),
+    (2,  'Φαγητοθήκη',       'LUNCH',    ["ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ",
+                                          "ΦΑΓΗΤΟΔΟΧΕΙΑ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                         1, 1),
+    (3,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
+    (4,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                                    1, 2),
+    (5,  'Μαρκαδόροι Ζωγρ.', 'DRAWMARK', ["ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ", "ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
+    (6,  'Χρώματα',          'PAINT',    ["ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"],                                    1, 1),
+    (7,  'Μπλοκ Ζωγραφικής', 'PAD',      ["ΜΠΛΟΚ-ΧΑΡΤΙΑ"],                                          1, 1),
+    (8,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
+    (9,  'Αυτοκόλλητα',      'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS", "ΑΥΤΟΚΟΛΛΗΤΑ"],                   1, 1),
+    (10, 'Γόμα / Ξύστρα',    'ERASER',   ["ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ"],                                      1, 2),
 ]
 
-# Older / teen / lifestyle (Γυμνάσιο-Λύκειο, Eastpak/JanSport/Fjällräven…):
-# swap the toddler-ish slots (stickers, coloured pencils) for grown-up ones
-# (geometry set, highlighters, folders, gel pens).
-SCHOOLBAG_OLDER_SLOTS = [
-    (1,  'Κασετίνα',        'CASE',      ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],               1, 2),
-    (2,  'Παγούρι',         'BOTTLE',    ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                1, 1),
-    (3,  'Φαγητοθήκη',      'LUNCH',     ["ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],            1, 1),
-    (4,  'Στυλό Gel',       'PEN',       ["ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ"],                 1, 2),
-    (5,  'Μαρκαδόροι',      'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΜΑΡΚΑΔΟΡΟΙ"],       1, 1),
-    (6,  'Τετράδια',        'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                    1, 2),
-    (7,  'Γεωμετρικά',      'GEOMETRY',  ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                            1, 1),
-    (8,  'Ντοσιέ',          'FOLDER',    ["ΝΤΟΣΙΕ"],                                       1, 1),
-    (9,  'Μολύβια',         'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                      1, 1),
-    (10, 'Γόμα / Ξύστρα',   'ERASER',    ["ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ"],                             1, 1),
+# PRIMARY — the classic Δημοτικό kit, sales-ordered (notebooks #1, pencils #2…).
+SCHOOLBAG_PRIMARY_SLOTS = [
+    (1,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
+    (2,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
+    (3,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
+    (4,  'Παγούρι',          'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                         1, 1),
+    (5,  'Φαγητοθήκη',       'LUNCH',    ["ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ",
+                                          "ΦΑΓΗΤΟΔΟΧΕΙΑ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                         1, 1),
+    (6,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                                    1, 1),
+    (7,  'Μαρκαδόροι',       'MARKER',   ["ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ"],     1, 1),
+    (8,  'Γόμα / Ξύστρα',    'ERASER',   ["ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ"],                                      1, 2),
+    (9,  'Στυλό',            'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                          1, 1),
+    (10, 'Κόλλες / Ψαλίδι',  'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ", "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],             1, 1),
+]
+
+# TEEN/ADULT — Γυμνάσιο-Λύκειο + lifestyle. Study & organise, sales-ordered
+# (notebooks, gel pens, highlighters, document wallets all top sellers).
+SCHOOLBAG_TEEN_SLOTS = [
+    (1,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
+    (2,  'Στυλό Gel',        'PEN_GEL',  ["ΣΤΥΛΟ GEL"],                                             1, 1),
+    (3,  'Μαρκαδόροι Υπογρ.','HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                              1, 1),
+    (4,  'Φάκελοι Μεταφοράς','WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                    1, 1),
+    (5,  'Στυλό Διαρκείας',  'PEN_BALL', ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],                1, 1),
+    (6,  'Γεωμετρικά',       'GEOMETRY', ["ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ"],                 1, 1),
+    (7,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
+    (8,  'Διορθωτικά',       'CORRECT',  ["ΔΙΟΡΘΩΤΙΚΑ"],                                            1, 1),
+    (9,  'Ντοσιέ / Post-it', 'FOLDER',   ["ΝΤΟΣΙΕ", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ",
+                                          "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"],                            1, 1),
+    (10, 'Παγούρι',          'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                         1, 2),
 ]
 
 SCHOOLBAG_MARKETING_COPY = {
-    'Κασετίνα':      "Οργάνωσε όλα τα σχολικά σου.",
-    'Παγούρι':       "Μείνε ενυδατωμένος όλη μέρα.",
-    'Φαγητοθήκη':    "Κράτα το κολατσιό φρέσκο.",
-    'Ξυλομπογιές':   "Χρώμα & δημιουργικότητα.",
-    'Μολύβια':       "Για κάθε εργασία.",
-    'Τετράδια':      "Έτοιμα για τη νέα χρονιά.",
-    'Ξύστρα':        "Πάντα κοφτερή μύτη.",
-    'Γόμα':          "Καθαρές διορθώσεις.",
-    'Στυλό':         "Γράψε με άνεση.",
-    'Στυλό Gel':     "Απαλό, καθαρό γράψιμο.",
-    'Αυτοκόλλητα':   "Διακόσμησε τα πράγματά σου.",
-    'Μαρκαδόροι':    "Τόνισε ό,τι μετράει.",
-    'Γεωμετρικά':    "Ακρίβεια στα μαθηματικά.",
-    'Ντοσιέ':        "Ταξινόμησε τις σημειώσεις σου.",
-    'Γόμα / Ξύστρα': "Τα βασικά της κασετίνας.",
-    'Σχολικά Είδη':  "Ιδανική προσθήκη στο kit σου.",
+    'Κασετίνα':         "Οργάνωσε όλα τα σχολικά σου.",
+    'Παγούρι':          "Μείνε ενυδατωμένος όλη μέρα.",
+    'Φαγητοθήκη':       "Κράτα το κολατσιό φρέσκο.",
+    'Ξυλομπογιές':      "Χρώμα & δημιουργικότητα.",
+    'Μαρκαδόροι Ζωγρ.': "Ζωντάνεψε τις ζωγραφιές σου.",
+    'Χρώματα':          "Ώρα για δημιουργία.",
+    'Μπλοκ Ζωγραφικής': "Λευκές σελίδες για ιδέες.",
+    'Μολύβια':          "Για κάθε εργασία.",
+    'Τετράδια':         "Έτοιμα για τη νέα χρονιά.",
+    'Ξύστρα':           "Πάντα κοφτερή μύτη.",
+    'Γόμα':             "Καθαρές διορθώσεις.",
+    'Στυλό':            "Γράψε με άνεση.",
+    'Στυλό Gel':        "Απαλό, καθαρό γράψιμο.",
+    'Στυλό Διαρκείας':  "Αξιόπιστο σε κάθε σημείωση.",
+    'Αυτοκόλλητα':      "Διακόσμησε τα πράγματά σου.",
+    'Μαρκαδόροι':       "Χρώμα σε κάθε σχέδιο.",
+    'Μαρκαδόροι Υπογρ.':"Τόνισε ό,τι μετράει.",
+    'Γεωμετρικά':       "Ακρίβεια στα μαθηματικά.",
+    'Φάκελοι Μεταφοράς':"Μετέφερε εργασίες με τάξη.",
+    'Ντοσιέ':           "Ταξινόμησε τις σημειώσεις σου.",
+    'Ντοσιέ / Post-it': "Οργάνωσε & σημείωσε.",
+    'Διορθωτικά':       "Διόρθωσε στη στιγμή.",
+    'Κόλλες / Ψαλίδι':  "Για κάθε χειροτεχνία.",
+    'Γόμα / Ξύστρα':    "Τα βασικά της κασετίνας.",
+    'Σχολικά Είδη':     "Ιδανική προσθήκη στο kit σου.",
 }
 
 # ── Licence/character vocabulary parsed from the TITLE. Each canonical maps
@@ -19629,7 +19664,7 @@ def _scb_color(text):
     return None
 
 
-def _scb_color_score(t_color, c_color, persona):
+def _scb_color_score(t_color, c_color, is_older):
     """Colour-coordination delta. Neutrals (black/grey/navy/white/beige/brown)
     coordinate with anything; a same-family match is best; a different BRIGHT
     on a bag of another colour clashes. Returns (delta, reason)."""
@@ -19640,29 +19675,42 @@ def _scb_color_score(t_color, c_color, persona):
     if c_color in SCHOOLBAG_NEUTRAL_COLORS:
         return SCHOOLBAG_S_COLOR_NEUTRAL, f"colour~{c_color}"
     # companion is a BRIGHT that doesn't match the bag → clash
-    clash = SCHOOLBAG_S_COLOR_CLASH if persona == 'OLDER' else SCHOOLBAG_S_COLOR_CLASH_KIDS
+    clash = SCHOOLBAG_S_COLOR_CLASH if is_older else SCHOOLBAG_S_COLOR_CLASH_KIDS
     return clash, f"colour✗{c_color}≠{t_color}"
 
 
 def _scb_age_persona(trigger, t_licence):
-    """Return (persona, band_label). persona ∈ {'KIDS','OLDER'} picks the
-    slot list; band_label is for diagnostics."""
+    """Return (persona, band_label). persona ∈ {'NURSERY','PRIMARY',
+    'TEEN_ADULT'} picks the slot list; band_label is for diagnostics.
+    NURSERY/PRIMARY are kids tiers; TEEN_ADULT is the older/lifestyle tier."""
     title = _scb_strip(trigger.get('Title', ''))
     brand = _scb_brand(trigger)
+    # Teen / high-school / lifestyle first (explicit band or adult brand).
     if 'ΓΥΜΝΑΣΙ' in title or 'ΛΥΚΕΙ' in title:
-        return 'OLDER', 'Γυμνάσιο/Λύκειο'
-    if brand in SCHOOLBAG_ADULT_BRANDS and not (t_licence in SCHOOLBAG_KID_ONLY_LICENCES):
-        return 'OLDER', 'Lifestyle/Ενηλίκων'
-    if 'ΝΗΠΙ' in title:
-        return 'KIDS', 'Νηπίου'
+        return 'TEEN_ADULT', 'Γυμνάσιο/Λύκειο'
+    if brand in SCHOOLBAG_ADULT_BRANDS and t_licence not in SCHOOLBAG_KID_ONLY_LICENCES:
+        return 'TEEN_ADULT', 'Lifestyle/Ενηλίκων'
+    # Pre-school.
+    if 'ΝΗΠΙ' in title or 'ΠΡΟΝΗΠΙ' in title or 'ΠΡΟΣΧΟΛΙΚ' in title:
+        return 'NURSERY', 'Νηπίου/Προσχολικό'
+    # Primary, plus licensed/untagged bags (most of the catalogue).
     if 'ΔΗΜΟΤΙΚ' in title:
-        return 'KIDS', 'Δημοτικού'
-    # Licensed (Frozen/Barbie/…) and untagged bags default to primary-school.
-    return 'KIDS', 'Δημοτικού'
+        return 'PRIMARY', 'Δημοτικού'
+    return 'PRIMARY', 'Δημοτικού'
 
 
-def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, t_color, notes):
-    """Score one role's candidate pool. Returns it sorted by Final_Score desc."""
+# Map persona → slot list.
+SCHOOLBAG_SLOTS_BY_PERSONA = {
+    'NURSERY':    SCHOOLBAG_NURSERY_SLOTS,
+    'PRIMARY':    SCHOOLBAG_PRIMARY_SLOTS,
+    'TEEN_ADULT': SCHOOLBAG_TEEN_SLOTS,
+}
+
+
+def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_color, notes):
+    """Score one role's candidate pool. Returns it sorted by Final_Score desc.
+    is_older: True for the TEEN_ADULT tier (full clash penalty + kid-licence
+    avoidance), False for NURSERY/PRIMARY (kid-themed boost, gentle clash)."""
     if sub is None or sub.empty:
         return pd.DataFrame()
     rows = []
@@ -19682,19 +19730,19 @@ def _scb_score_companion(sub, role_key, t_licence, persona, t_brand, tprice, t_c
         if t_licence and c_lic == t_licence:
             score += SCHOOLBAG_S_LICENCE_MATCH
             reasons.append(f"licence={c_lic}")
-        # 2. Age-band coherence: kids kit favours themed items; older kit
-        #    favours plain (no kid-only licence) items.
-        if persona == 'KIDS':
+        # 2. Age-band coherence: kids tiers favour themed items; the older
+        #    tier favours plain (no kid-only licence) items.
+        if not is_older:
             if c_lic is not None:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("kid-themed")
-        else:  # OLDER
+        else:
             if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("age-ok")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
-        col_delta, col_reason = _scb_color_score(t_color, c_color, persona)
+        col_delta, col_reason = _scb_color_score(t_color, c_color, is_older)
         if col_delta:
             score += col_delta
             if col_reason:
@@ -19738,7 +19786,8 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
     t_licence = _scb_licence(trigger.get('Title', ''))
     t_color = _scb_color(trigger.get('Title', ''))
     persona, band = _scb_age_persona(trigger, t_licence)
-    slot_list = SCHOOLBAG_KIDS_SLOTS if persona == 'KIDS' else SCHOOLBAG_OLDER_SLOTS
+    is_older = (persona == 'TEEN_ADULT')
+    slot_list = SCHOOLBAG_SLOTS_BY_PERSONA.get(persona, SCHOOLBAG_PRIMARY_SLOTS)
 
     diag.append(("0. Trigger",
                  f"{t_brand or '—'} €{t_price:.0f}",
@@ -19771,11 +19820,11 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
             dropped_price += 1
             continue
         # (b) No toddler-only character supplies on a teen/adult bag.
-        if persona == 'OLDER':
+        if is_older:
             c_lic = _scb_licence(r.get('Title', ''))
             if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
                 dropped_age += 1
-                gate_notes.append(f"  ✗ DROP kid-licence [{c_lic}] on OLDER bag: "
+                gate_notes.append(f"  ✗ DROP kid-licence [{c_lic}] on TEEN/ADULT bag: "
                                   f"{str(r.get('Title',''))[:48]}")
                 continue
         kept.append(r)
@@ -19804,14 +19853,14 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
             pools[slot_num] = (role_label, pd.DataFrame(), max_r1, max_total, nts)
             continue
         nts.append(f"  Role pool size: {len(sub)}")
-        scored = _scb_score_companion(sub, role_key, t_licence, persona,
+        scored = _scb_score_companion(sub, role_key, t_licence, is_older,
                                      t_brand, t_price, t_color, nts)
         pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
         diag.append((f"Pool {slot_num} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
 
     # ── Universal backfill: whole gated pool scored generically ───────────
-    backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, persona,
+    backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, is_older,
                                    t_brand, t_price, t_color, None)
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
