@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.6-2026-06-11"
+APP_BUILD = "parquet-v28.61.8-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.6 — Σχολικές Τσάντες: εφηβικό/ενηλίκων kit με βασικά μαθητικά (μολύβια/γόμα/ξύστρα, 1 ντοσιέ) + πραγματικά τετράδια + κασετίνα 1η + colour/character.
+        🟢 Engine v28.61.8 — Σχολικές Τσάντες: φθηνές τσάντες → προτεραιότητα τιμής (χωρίς colour-match), brand-match (π.χ. Coolbee), όχι τυχαίοι χαρακτήρες· ακριβές τσάντες: colour+character όπως πριν.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1620,6 +1620,22 @@ SCHOOLBAG_S_AVAIL         =   1_000   # immediately available
 SCHOOLBAG_PRICE_W         =     400   # per-€ penalty on price distance
 SCHOOLBAG_PRICE_FLOOR     =      25   # companions up to €25 always price-OK
 SCHOOLBAG_PRICE_CAP_MULT  =     1.1   # companion ≤ bag×1.1 (else dropped)
+
+# Off-theme penalty (v28.61.7): a licensed-character companion whose licence
+# does NOT match the bag's own licence. On a PLAIN bag (no character) this
+# stops the engine injecting a random franchise mash-up (Barbie case +
+# Spiderman bottle + Harry-Potter lunch on a plain black bag); on a themed
+# bag it stops a different franchise crowding in. Pushed below every plain /
+# coordinated item, but it is NOT a hard gate, so backfill can still use one
+# as a last resort when a slot's pool is character-only.
+SCHOOLBAG_S_OFFTHEME      = -80_000
+
+# Cost priority for cheap bags (v28.61.7): for a budget bag the buyer is
+# price-sensitive, so steepen the per-€ price penalty. Kept below the colour
+# gap (MATCH−NEUTRAL = 35k) so "make everything black" still wins over a
+# cheaper non-matching colour.
+SCHOOLBAG_BUDGET_BAG_EUR  =      25   # bag ≤ €25 → treat as budget
+SCHOOLBAG_PRICE_W_BUDGET  =    2000   # steeper per-€ penalty for budget bags
 
 # ── COLOUR COORDINATION (v28.61.2) ────────────────────────────────────────
 # A black Eastpak was getting a teal "Polar Blue" κασετίνα because brand-match
@@ -19724,7 +19740,7 @@ SCHOOLBAG_SLOTS_BY_PERSONA = {
 def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_color, notes):
     """Score one role's candidate pool. Returns it sorted by Final_Score desc.
     is_older: True for the TEEN_ADULT tier (full clash penalty + kid-licence
-    avoidance), False for NURSERY/PRIMARY (kid-themed boost, gentle clash)."""
+    avoidance), False for NURSERY/PRIMARY (theme-coherence, gentle clash)."""
     if sub is None or sub.empty:
         return pd.DataFrame()
     rows = []
@@ -19744,23 +19760,35 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
         if t_licence and c_lic == t_licence:
             score += SCHOOLBAG_S_LICENCE_MATCH
             reasons.append(f"licence={c_lic}")
-        # 2. Age-band coherence: kids tiers favour themed items; the older
-        #    tier favours plain (no kid-only licence) items.
+        # 2. Theme coherence (kids tier) / age coherence (older tier).
+        #    Kids tier: only the bag's OWN character is welcome. A plain bag
+        #    stays plain; a different franchise is pushed down (off-theme).
+        #    Older tier: unchanged — plain / non-kid-only items get the
+        #    coherent baseline (kid-only licences are hard-gated pre-scoring).
         if not is_older:
-            if c_lic is not None:
+            if c_lic and c_lic == t_licence:
                 score += SCHOOLBAG_S_AGE_COHERENT
-                reasons.append("kid-themed")
+                reasons.append("on-theme")
+            elif c_lic:                       # any other character → off-theme
+                score += SCHOOLBAG_S_OFFTHEME
+                reasons.append("off-theme")
+            else:                             # plain companion → coherent
+                score += SCHOOLBAG_S_AGE_COHERENT
+                reasons.append("kid-ok")
         else:
             if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("age-ok")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
-        col_delta, col_reason = _scb_color_score(t_color, c_color, is_older)
-        if col_delta:
-            score += col_delta
-            if col_reason:
-                reasons.append(col_reason)
+        #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
+        #    not by choice — those buyers care about price, not colour-matching.
+        if tprice > SCHOOLBAG_BUDGET_BAG_EUR:
+            col_delta, col_reason = _scb_color_score(t_color, c_color, is_older)
+            if col_delta:
+                score += col_delta
+                if col_reason:
+                    reasons.append(col_reason)
         # 4. Brand ecosystem (GIM / Polo / Eastpak licensed lines cluster).
         if t_brand and c_brand == t_brand:
             score += SCHOOLBAG_S_BRAND_MATCH
@@ -19768,9 +19796,11 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
         # 5. Availability.
         if 'ΑΜΕΣΑ' in avail:
             score += SCHOOLBAG_S_AVAIL
-        # 6. Price proximity — keep companions cheap & proportionate to the bag.
+        # 6. Price proximity — keep companions cheap & proportionate to the
+        #    bag. For a budget bag, cost is a priority → steeper penalty.
         ideal = min(max(tprice * 0.35, 4.0), 20.0)
-        score -= SCHOOLBAG_PRICE_W * abs(c_price - ideal)
+        price_w = SCHOOLBAG_PRICE_W_BUDGET if tprice <= SCHOOLBAG_BUDGET_BAG_EUR else SCHOOLBAG_PRICE_W
+        score -= price_w * abs(c_price - ideal)
         # 7. Sales micro-tiebreaker.
         score += sales
 
