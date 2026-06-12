@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.10-2026-06-12"
+APP_BUILD = "parquet-v28.61.11-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.10 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε Dino/Pirate/Glitter κ.λπ.)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
+        🟢 Engine v28.61.11 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε διακοσμητικά μοτίβα + gift/novelty brands: Legami/Papermint/i-Total κ.λπ.)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
     </div>
 </div>
 """, unsafe_allow_html=True)
