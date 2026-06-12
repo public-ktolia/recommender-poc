@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.12-2026-06-12"
+APP_BUILD = "parquet-v28.61.13-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.12 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε διακοσμητικά μοτίβα + novelty brands από τίτλο ΚΑΙ στήλη brand: Legami/Χάρτινη Πόλη/Graffiti κ.λπ. + γνωστοί χαρακτήρες)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
+        🟢 Engine v28.61.13 — Σχολικές Τσάντες: licence/theme match (+LEGO)· ουδέτερη τσάντα → σκέτα (ποινή σε μοτίβα + novelty brands τίτλος/στήλη)· dropdown = top-10 + Frozen/character test SKUs.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1449,10 +1449,36 @@ SCHOOLBAG_L2 = "Bags"
 SCHOOLBAG_TRIGGER_HIERARCHY = "ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ"
 SCHOOLBAG_SLOT_TARGET = 10
 
-# 🧪 Optional test-list filter (leave empty to show ALL 1.263 bags).
-SCHOOLBAG_TEST_SKUS = set()
-# 🧪 Optional: limit the sidebar dropdown to the top-N best-selling bags (by
-#    Sum of Sales). Set to None/0 to show every bag. Used for quick testing.
+# 🧪 Character / Frozen test bags — pinned into the sidebar dropdown ALONGSIDE
+#    the top-N best-sellers (union), so personas (kid kit, neutral kit, licence
+#    match) can be eyeballed quickly. One representative best-seller per theme.
+SCHOOLBAG_TEST_SKUS = {
+    "2042922",  # FROZEN  — Gim Frozen Idyllic (trolley)  → kid kit
+    "1934118",  # BARBIE  — Gim Barbie Varsity
+    "1933950",  # MINNIE  — Gim Minnie Boho Surf
+    "1933986",  # MICKEY  — Gim Mickey Friends
+    "1933814",  # PRINCESS— Gim Princess Spring
+    "1823042",  # PAW PATROL — Gim Paw Patrol Rescue
+    "1953759",  # GABBY   — Must Gabby's Dollhouse
+    "2043976",  # BLUEY   — Graffiti Bluey
+    "1674233",  # UNICORN — Coolbee Unicorn
+    "2042887",  # SPIDERMAN — Gim Spiderman City Web   → teen licence
+    "2043923",  # BATMAN  — Graffiti Batman
+    "1940724",  # HARRY POTTER — Graffiti Harry Potter
+    "1622845",  # NBA     — NBA Milwaukee Bucks
+    "2043953",  # MINECRAFT — Graffiti Minecraft
+    "2043963",  # POKEMON — Graffiti Pokemon
+    "1823203",  # NARUTO  — Gim Naruto
+    "2042860",  # SONIC   — Gim Sonic 3
+    "2042928",  # STITCH  — Gim Stitch Gen Z
+    "1933894",  # HELLO KITTY — Gim Hello Kitty
+    "2043855",  # KUROMI  — Graffiti Kuromi Sketch
+    "2067629",  # LEGO    — Herschel Lego                → licence/theme match
+    "2067632",  # LEGO    — Herschel Kids Lego Flowers
+}
+# 🧪 Limit the dropdown to the top-N best-selling bags (by Sum of Sales). The
+#    SKUs in SCHOOLBAG_TEST_SKUS are ADDED on top of these (union). Set both to
+#    None/0/empty to show every one of the 1.263 bags.
 SCHOOLBAG_TEST_TOP_N = 10
 
 # ── Companion hierarchies that make up a back-to-school kit. Every value
@@ -1594,6 +1620,7 @@ SCHOOLBAG_LICENCES = [
     ("REAL MADRID",  ["REAL MADRID"]),
     ("BARCELONA",    ["BARCELONA", " FCB "]),
     ("MARVEL",       ["MARVEL", "AVENGERS"]),
+    ("LEGO",         ["LEGO"]),
     ("DISNEY",       ["DISNEY"]),
 ]
 
@@ -10349,16 +10376,23 @@ else:
             hier_clean = df_stationery['Hierarchy'].fillna('').astype(str).str.strip()
             sb_pool = df_stationery[hier_clean == SCHOOLBAG_TRIGGER_HIERARCHY].copy()
 
-            # 🧪 Optional test-list filter (leave SCHOOLBAG_TEST_SKUS empty for all)
-            if SCHOOLBAG_TEST_SKUS and not sb_pool.empty:
-                mat_clean = sb_pool['Material'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-                sb_pool = sb_pool[mat_clean.isin(SCHOOLBAG_TEST_SKUS)]
-
-            # 🧪 Optional: keep only the top-N best-selling bags in the dropdown.
-            if SCHOOLBAG_TEST_TOP_N and not sb_pool.empty:
+            # 🧪 Dropdown pool = top-N best-sellers UNION the pinned test SKUs.
+            #    (Both empty/None → show every bag.)
+            if not sb_pool.empty and (SCHOOLBAG_TEST_TOP_N or SCHOOLBAG_TEST_SKUS):
                 sb_pool = sb_pool.assign(
                     _sb_sales=pd.to_numeric(sb_pool['Sum of Sales'], errors='coerce').fillna(0.0)
-                ).sort_values('_sb_sales', ascending=False).head(int(SCHOOLBAG_TEST_TOP_N))
+                )
+                _mat = (sb_pool['Material'].astype(str).str.strip()
+                        .str.replace(r'\.0$', '', regex=True))
+                _parts = []
+                if SCHOOLBAG_TEST_TOP_N:
+                    _parts.append(sb_pool.sort_values('_sb_sales', ascending=False)
+                                  .head(int(SCHOOLBAG_TEST_TOP_N)))
+                if SCHOOLBAG_TEST_SKUS:
+                    _parts.append(sb_pool[_mat.isin(SCHOOLBAG_TEST_SKUS)])
+                sb_pool = (pd.concat(_parts)
+                           .drop_duplicates(subset=['Material'])
+                           .sort_values('_sb_sales', ascending=False))
 
             if sb_pool.empty:
                 st.sidebar.warning("Δεν βρέθηκαν Σχολικές Τσάντες στο sheet Stationery (Bags).")
