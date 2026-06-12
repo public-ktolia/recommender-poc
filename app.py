@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.4-2026-06-11"
+APP_BUILD = "parquet-v28.61.5-2026-06-11"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.4 — Σχολικές Τσάντες: 3 ηλικιακά kit (κασετίνα 1η για εφηβικό/ενηλίκων) + character-match + χρωματικός συνδυασμός + τιμή· dropdown: top-10 σε πωλήσεις.
+        🟢 Engine v28.61.5 — Σχολικές Τσάντες: slot τετραδίων = πραγματικά σχολικά τετράδια (όχι Moleskine/σημειωματάρια) + κασετίνα 1η για εφηβικό/ενηλίκων + colour/character/τιμή.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1461,7 +1461,7 @@ SCHOOLBAG_TEST_TOP_N = 10
 #    deliberately absent (cross-sell, never a 2nd bag).
 SCHOOLBAG_COMPANION_HIERARCHIES = {
     # writing & core
-    "ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ", "ΜΟΛΥΒΙΑ",
+    "ΤΕΤΡΑΔΙΑ", "ΜΟΛΥΒΙΑ",  # ΣΗΜΕΙΩΜΑΤΑΡΙΑ excluded: students buy τετράδια, not journals
     "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ",
     "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ", "ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ",
     # colour & art (kids)
@@ -1503,7 +1503,7 @@ SCHOOLBAG_NURSERY_SLOTS = [
 
 # PRIMARY — the classic Δημοτικό kit, sales-ordered (notebooks #1, pencils #2…).
 SCHOOLBAG_PRIMARY_SLOTS = [
-    (1,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
+    (1,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ"],                                              1, 2),
     (2,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
     (3,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
     (4,  'Παγούρι',          'BOTTLE',   ["ΘΕΡΜΟΣ - ΠΑΓΟΥΡΙΑ", "ΠΑΓΟΥΡΙΑ"],                         1, 1),
@@ -1522,7 +1522,7 @@ SCHOOLBAG_TEEN_SLOTS = [
     # v28.61.4 — Κασετίνα leads for teen/adult bags (e.g. matching Eastpak Up
     # Case on an Eastpak); notebooks drop to #2, the rest cascade down.
     (1,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
-    (2,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ", "ΣΗΜΕΙΩΜΑΤΑΡΙΑ"],                             1, 2),
+    (2,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ"],                                              1, 2),
     (3,  'Στυλό Gel',        'PEN_GEL',  ["ΣΤΥΛΟ GEL"],                                             1, 1),
     (4,  'Μαρκαδόροι Υπογρ.','HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                              1, 1),
     (5,  'Φάκελοι Μεταφοράς','WALLET',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ"],                                    1, 1),
