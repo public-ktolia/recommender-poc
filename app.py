@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.9-2026-06-12"
+APP_BUILD = "parquet-v28.61.10-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.9 — Σχολικές Τσάντες: σκέτη/γενική τσάντα → ουδέτερο μαθητικό kit (όχι παιδικό)· παιδικό kit μόνο με σήμα ηλικίας ή χαρακτήρα· φθηνές → τιμή, brand-match.
+        🟢 Engine v28.61.10 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε Dino/Pirate/Glitter κ.λπ.)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1636,6 +1636,14 @@ SCHOOLBAG_S_OFFTHEME      = -80_000
 # cheaper non-matching colour.
 SCHOOLBAG_BUDGET_BAG_EUR  =      25   # bag ≤ €25 → treat as budget
 SCHOOLBAG_PRICE_W_BUDGET  =    2000   # steeper per-€ penalty for budget bags
+
+# Plain-product preference (v28.61.10): on a neutral / older bag the buyer
+# wants plain stuff, so a DECORATED / novelty companion (Dino, Pirate, Boho,
+# Glitter…) is pushed below every plain item — even a plain item of another
+# brand beats a decorated on-brand one. Not a hard gate, so backfill can still
+# use one when a slot is decorated-only. Applies to the TEEN_ADULT tier only;
+# kids tiers (positive age/character signal) keep themed picks.
+SCHOOLBAG_S_NONPLAIN      = -50_000
 
 # ── COLOUR COORDINATION (v28.61.2) ────────────────────────────────────────
 # A black Eastpak was getting a teal "Polar Blue" κασετίνα because brand-match
@@ -19681,6 +19689,45 @@ def _scb_licence(text):
     return None
 
 
+# Decorative / novelty motifs (v28.61.10). A "plain" school item just states
+# product + brand + colour + size; these tokens mark a DECORATED/themed one
+# (a Dino case, Pirate bottle, Glitter eraser…). On a neutral / older bag the
+# buyer wants plain stuff, so decorated items are penalised (see scoring).
+# NOTE: functional words (Neon, Pastel, Metallic, colours) are NOT here.
+SCHOOLBAG_DECOR_MOTIFS = [
+    'DINO', 'PIRATE', 'ΠΕΙΡΑΤ', 'TIGER', 'ΤΙΓΡ', 'ΛΙΟΝΤΑΡ', 'UNICORN', 'ΜΟΝΟΚΕΡ',
+    'MERMAID', 'ΓΟΡΓΟΝ', 'BUTTERFLY', 'ΠΕΤΑΛΟΥΔ', 'RAINBOW', 'GALAXY', 'SPACE',
+    'ΔΙΑΣΤΗΜ', 'ASTRONAUT', 'ΑΣΤΡΟΝΑΥΤ', 'ROCKET', 'ΠΥΡΑΥΛ', 'FLUFFY', 'PLUSH',
+    'ΛΟΥΤΡΙΝ', 'GLITTER', 'ΓΚΛΙΤΕΡ', 'KAWAII', 'EMOJI', 'SMILE', 'BOHO', 'SHARK',
+    'ΚΑΡΧΑΡ', 'DRAGON', 'ΔΡΑΚ', 'HOLOGRAPHIC', 'ΟΛΟΓΡΑΦ', 'SEQUIN', 'ΠΑΓΙΕΤ',
+    'SHAKER', 'POMPON', 'ΦΟΥΝΤ', 'ANIMAL', 'ΖΩΑΚ', 'SKULL', 'ΝΕΚΡΟΚΕΦ', 'CAMO',
+    'SLOTH', 'ΒΡΑΔΥΠΟΡ', 'PANDA', 'BUNNY', 'ΛΑΓΟΥΔ', 'PUPPY', 'KITTY', 'FLAMINGO',
+    'ΦΛΑΜΙΝΓΚ', 'FLORAL', 'ΛΟΥΛΟΥΔ', 'FLOWER', 'HEART', 'ΚΑΡΔΟΥΛ', 'CHERRY',
+    'ΚΕΡΑΣ', 'FRUIT', 'ΦΡΟΥΤ', 'DAISY', 'ΜΑΡΓΑΡΙΤ', 'MAGIC', 'ΜΑΓΙΚ', 'FAIRY',
+    'ΝΕΡΑΙΔ', 'CASTLE', 'ΚΑΣΤΡ', 'DONUT', 'ΝΤΟΝΑΤ', 'CACTUS', 'ΚΑΚΤ', 'AVOCADO',
+    'ROBOT', 'ΡΟΜΠΟΤ', 'DOLL', 'ΚΟΥΚΛ', 'MONSTER', 'ΤΕΡΑΣ', 'DINOSAUR', 'ΔΕΙΝΟΣ',
+    'COMIC', 'CARTOON', 'ΚΙΝΟΥΜΕΝ', 'SUPERHERO', 'NINJA', 'ΝΙΝΤΖΑ', 'SMILEY',
+    # animals & animal-sound / novelty nouns that mark a themed product
+    'LADYBUG', 'LADYBIRD', 'ΠΑΣΧΑΛΙΤΣ', 'MEOW', 'ΝΙΑΟΥ', 'WOOF',
+    'ΚΟΥΚΟΥΒΑΓ', 'FOX', 'ΑΛΕΠΟΥ', 'FROG', 'ΒΑΤΡΑΧ', 'ΜΕΛΙΣΣ', 'KOALA',
+    'ΚΟΑΛ', 'MONKEY', 'ΜΑΙΜΟΥ', 'ELEPHANT', 'ΕΛΕΦΑΝΤ', 'DOLPHIN', 'ΔΕΛΦΙΝ',
+    'WHALE', 'ΦΑΛΑΙΝ', 'PENGUIN', 'ΠΙΓΚΟΥΙΝ', 'HORSE', 'PONY', 'ΠΟΝΙ', 'DUCK',
+    'CHICK', 'CROCODILE', 'ΚΡΟΚΟΔΕΙΛ', 'TURTLE', 'ΧΕΛΩΝ', 'SNAIL', 'ΣΑΛΙΓΚΑΡ',
+    'HEDGEHOG', 'ΣΚΑΝΤΖΟΧ', 'HAMSTER', 'ΧΑΜΣΤΕΡ', 'LLAMA', 'ΛΑΜΑ', 'SWAN',
+    'PARROT', 'ΠΑΠΑΓΑΛ', 'DINO', 'GHOST', 'ΦΑΝΤΑΣΜ', 'ALIEN', 'ΕΞΩΓΗΙΝ',
+    'POLKA', 'ΠΟΥΑ', 'STARS', 'HEARTS', 'CUPCAKE', 'ICE CREAM', 'ΠΑΓΩΤ',
+    'CANDY', 'ΚΑΡΑΜΕΛ', 'LEOPARD', 'ΛΕΟΠΑΡ', 'ZEBRA', 'ΖΕΒΡ', 'PineApple'.upper(),
+    'ΑΝΑΝΑ', 'WATERMELON', 'ΚΑΡΠΟΥΖ', 'STRAWBERRY', 'ΦΡΑΟΥΛ', 'SPACESHIP',
+]
+
+
+def _scb_decorated(text):
+    """True if the title carries a decorative / novelty motif (Dino, Pirate,
+    Glitter…) → a non-plain product."""
+    t = " " + _scb_strip(text) + " "
+    return any(m in t for m in SCHOOLBAG_DECOR_MOTIFS)
+
+
 def _scb_color(text):
     """First colour family whose pattern appears in the (stripped) title.
     Returns a canonical family (e.g. 'BLACK','BLUE') or None when the title
@@ -19786,6 +19833,13 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
             if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("age-ok")
+            # Neutral/older bag wants PLAIN, on-theme items.
+            if c_lic and c_lic != t_licence:        # a non-matching character
+                score += SCHOOLBAG_S_OFFTHEME
+                reasons.append("off-theme")
+            elif _scb_decorated(title):             # decorative / novelty motif
+                score += SCHOOLBAG_S_NONPLAIN
+                reasons.append("decorated")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
         #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
