@@ -19707,6 +19707,9 @@ SCHOOLBAG_DECOR_MOTIFS = [
     'ΝΕΡΑΙΔ', 'CASTLE', 'ΚΑΣΤΡ', 'DONUT', 'ΝΤΟΝΑΤ', 'CACTUS', 'ΚΑΚΤ', 'AVOCADO',
     'ROBOT', 'ΡΟΜΠΟΤ', 'DOLL', 'ΚΟΥΚΛ', 'MONSTER', 'ΤΕΡΑΣ', 'DINOSAUR', 'ΔΕΙΝΟΣ',
     'COMIC', 'CARTOON', 'ΚΙΝΟΥΜΕΝ', 'SUPERHERO', 'NINJA', 'ΝΙΝΤΖΑ', 'SMILEY',
+    # specific themes seen slipping through (solar/space typo, beach…)
+    'SOLAR', 'AUSTRONAUT', 'BEACH', 'TROPIC', 'JUNGLE', 'ΖΟΥΓΚΛ', 'SAFARI',
+    'OCEAN', 'ΩΚΕΑΝ', 'SUNSET', 'PALM', 'SURF', 'WAVE', 'ΚΥΜΑ',
     # animals & animal-sound / novelty nouns that mark a themed product
     'LADYBUG', 'LADYBIRD', 'ΠΑΣΧΑΛΙΤΣ', 'MEOW', 'ΝΙΑΟΥ', 'WOOF',
     'ΚΟΥΚΟΥΒΑΓ', 'FOX', 'ΑΛΕΠΟΥ', 'FROG', 'ΒΑΤΡΑΧ', 'ΜΕΛΙΣΣ', 'KOALA',
@@ -19726,6 +19729,28 @@ def _scb_decorated(text):
     Glitter…) → a non-plain product."""
     t = " " + _scb_strip(text) + " "
     return any(m in t for m in SCHOOLBAG_DECOR_MOTIFS)
+
+
+# Gift / novelty stationery brands. Their identity is colourful themed goods,
+# so on a neutral / older bag they're demoted in favour of plain functional
+# brands (Faber-Castell, Stabilo, Pilot, Office Log, Milan…). This is the
+# robust catch for new themes the motif list above hasn't seen yet (e.g. a
+# future "Legami <X>"). Brand is read from the TITLE (the Κατασκευαστής column
+# is unreliable), and the name appears in-title for these lines.
+# Excluded on purpose: Coolbee (wanted on Coolbee bags), Posh+Pop / Asobu /
+# Bioloco (plain functional bottles), Globus, Rene x Public (plain notebooks).
+SCHOOLBAG_NOVELTY_BRANDS = [
+    'LEGAMI', 'PAPERMINT', 'I-TOTAL', 'ITOTAL', 'OOLY', 'DREAMDROP', 'PUCKATOR',
+    'TRI-COASTAL', 'TRI COASTAL', 'NICI', 'ΧΑΡΤΙΝΗ ΠΟΛΗ', 'DREAM POP',
+    'MUSTARD', 'TINC', 'BLUE SKY',
+]
+
+
+def _scb_novelty_brand(text):
+    """True if the title names a gift/novelty brand → treat as non-plain on a
+    neutral/older bag."""
+    t = " " + _scb_strip(text) + " "
+    return any(b in t for b in SCHOOLBAG_NOVELTY_BRANDS)
 
 
 def _scb_color(text):
@@ -19837,9 +19862,9 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
             if c_lic and c_lic != t_licence:        # a non-matching character
                 score += SCHOOLBAG_S_OFFTHEME
                 reasons.append("off-theme")
-            elif _scb_decorated(title):             # decorative / novelty motif
+            elif _scb_decorated(title) or _scb_novelty_brand(title):
                 score += SCHOOLBAG_S_NONPLAIN
-                reasons.append("decorated")
+                reasons.append("non-plain")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
         #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
