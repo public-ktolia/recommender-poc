@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.11-2026-06-12"
+APP_BUILD = "parquet-v28.61.12-2026-06-12"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.11 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε διακοσμητικά μοτίβα + gift/novelty brands: Legami/Papermint/i-Total κ.λπ.)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
+        🟢 Engine v28.61.12 — Σχολικές Τσάντες: ουδέτερη/older τσάντα → σκέτα προϊόντα (ποινή σε διακοσμητικά μοτίβα + novelty brands από τίτλο ΚΑΙ στήλη brand: Legami/Χάρτινη Πόλη/Graffiti κ.λπ. + γνωστοί χαρακτήρες)· σκέτη τσάντα → ουδέτερο kit· φθηνές → τιμή, brand-match.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -19710,6 +19710,14 @@ SCHOOLBAG_DECOR_MOTIFS = [
     # specific themes seen slipping through (solar/space typo, beach…)
     'SOLAR', 'AUSTRONAUT', 'BEACH', 'TROPIC', 'JUNGLE', 'ΖΟΥΓΚΛ', 'SAFARI',
     'OCEAN', 'ΩΚΕΑΝ', 'SUNSET', 'PALM', 'SURF', 'WAVE', 'ΚΥΜΑ',
+    # popular characters/franchises (non-matching → not plain on a neutral bag)
+    'KUROMI', 'SANRIO', 'HELLO KITTY', 'ΧΕΛΟ ΚΙΤΙ', 'CINNAMOROLL', 'KEROPPI',
+    'POMPOMPURIN', 'GUDETAMA', 'POCHACCO', 'MY MELODY', 'SNOOPY', 'PEANUTS',
+    'STITCH', 'ΣΤΙΤΣ', 'MINIONS', 'MINION', 'SMURF', 'ΣΤΡΟΥΜΦ', 'GARFIELD',
+    'POKEMON', 'PIKACHU', 'SUPER MARIO', 'SONIC', 'NARUTO', 'ONE PIECE',
+    'DRAGON BALL', 'SPIDERMAN', 'SPIDER-MAN', 'BATMAN', 'SUPERMAN', 'AVENGERS',
+    'MARVEL', 'STAR WARS', 'HARRY POTTER', 'POOH', 'ΓΟΥΙΝΙ', 'STRANGER THINGS',
+    'NETFLIX', 'SQUISHM', 'SQUISH', 'KAWAII',
     # animals & animal-sound / novelty nouns that mark a themed product
     'LADYBUG', 'LADYBIRD', 'ΠΑΣΧΑΛΙΤΣ', 'MEOW', 'ΝΙΑΟΥ', 'WOOF',
     'ΚΟΥΚΟΥΒΑΓ', 'FOX', 'ΑΛΕΠΟΥ', 'FROG', 'ΒΑΤΡΑΧ', 'ΜΕΛΙΣΣ', 'KOALA',
@@ -19742,7 +19750,7 @@ def _scb_decorated(text):
 SCHOOLBAG_NOVELTY_BRANDS = [
     'LEGAMI', 'PAPERMINT', 'I-TOTAL', 'ITOTAL', 'OOLY', 'DREAMDROP', 'PUCKATOR',
     'TRI-COASTAL', 'TRI COASTAL', 'NICI', 'ΧΑΡΤΙΝΗ ΠΟΛΗ', 'DREAM POP',
-    'MUSTARD', 'TINC', 'BLUE SKY',
+    'MUSTARD', 'TINC', 'BLUE SKY', 'GRAFFITI', 'XSCAPE', 'ONE LYC', 'LYCSAC',
 ]
 
 
@@ -19862,7 +19870,8 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
             if c_lic and c_lic != t_licence:        # a non-matching character
                 score += SCHOOLBAG_S_OFFTHEME
                 reasons.append("off-theme")
-            elif _scb_decorated(title) or _scb_novelty_brand(title):
+            elif (_scb_decorated(title) or _scb_novelty_brand(title)
+                  or _scb_novelty_brand(c_brand)):
                 score += SCHOOLBAG_S_NONPLAIN
                 reasons.append("non-plain")
         # 3. Colour coordination — prefer same-family / neutral companions,
