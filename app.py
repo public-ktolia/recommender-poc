@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.64.0-2026-06-15"
+APP_BUILD = "parquet-v28.64.1-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.64.0 — Είδη Χειροτεχνίας: ανά τύπο (Πηλός/Χαρτιά/Αξεσουάρ/Κόλλα) → ολοκλήρωσε την κατασκευή· brand × χρώμα × μέγεθος.
+        🟢 Engine v28.64.1 — Είδη Χειροτεχνίας: ηλικία (νήπιο/παιδί/ενήλικας) × χρήση (πλαστελίνη/γλυπτική/ζωγραφική/χαρτοκοπτική) → σωστό kit.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2589,6 +2589,138 @@ CRAFT_TEST_TOP_N = 20             # picker: top-N best-sellers PER sub-type
 CRAFT_PRICE_CAP_MULT = 6.0        # companion ≤ 6× trigger …
 CRAFT_PRICE_FLOOR_EUR = 20.0      # … or €20 (a paint/clay set can lead a cheap glue)
 CRAFT_SLOT_TARGET = 10
+
+# ── AUDIENCE & USE differentiation (v28.64.1) ─────────────────────────────
+# Craft spans toddlers (Play-Doh), school kids (Primo / Coolbee tempera) and
+# teens/adults (DAS air-dry pottery clay, Fimo, oil paint, Favini cardstock).
+# A toddler dough set must NOT pull oil paint, oil brushes or pottery clay; an
+# adult sculpting clay must NOT pull Play-Doh or kid character tattoos. We tag a
+# 3-tier maturity (YOUNG / KID / ADULT), hard-gate incompatible tiers, and route
+# the kit by USE (dough-play vs sculpting vs painting vs paper-craft).
+CRAFT_YOUNG_BRANDS = {"HASBRO", "FISHER PRICE", "CHICCO", "PLAY-DOH", "PLAYDOH", "AS"}
+CRAFT_KID_BRANDS = {"OOLY", "CRAYOLA", "GIOTTO", "PRIMO", "COOLBEE", "MAPED",
+                    "RONY", "KIDDY CLAY", "JOVI", "CARIOCA", "I-MONDI", "I-TOTAL"}
+CRAFT_ADULT_BRANDS = {"DARWI", "DAS", "FIMO", "STAEDTLER", "FAVINI", "SCHOELLER", "CANSON"}
+# YOUNG = toddler / preschool toy craft
+CRAFT_YOUNG_TOKENS = ("PLAY-DOH", "PLAYDOH", "PLAY DOH", "BEBE", "ΝΗΠΙ", "ΒΡΕΦ",
+                      "ΔΑΧΤΥΛΟΜΠΟΓΙ", "FINGER PAINT")
+# ADULT-by-USE (regardless of brand): oil paint/brushes, fine-art papers,
+# polymer/pottery clay, plaster — none of these belong on a young-kid carousel.
+CRAFT_ADULT_TOKENS = ("ΛΑΔΙΟΥ", "OIL COLOR", "ΡΙΖΟΧΑΡΤ", "ΜΙΛΙΜΕΤΡΕ", "ΚΑΛΛΙΤΕΧΝ",
+                      "ΓΥΨΟ", "TERRACOTA", "ΠΟΛΥΜΕΡΙΚ", "FIMO")
+# Paper USE: a painting/drawing pad → painting kit; collage cardstock → craft kit.
+CRAFT_PAPER_PAINT_TOKENS = ("ΑΚΟΥΑΡΕΛ", "ΣΧΕΔΙΟΥ", "ΖΩΓΡΑΦΙΚΗΣ", "CANSON",
+                            "ΡΙΖΟΧΑΡΤ", "ΠΑΣΤΕΛ", "ΑΚΡΥΛΙΚ")
+
+CRAFT_S_AUDIENCE = 50_000         # same-tier audience match (below brand 80k)
+
+# Audience-routed CLAY kits. YOUNG = dough play (more dough, moulds, play
+# accessories, kid colour/stickers); ADULT = sculpting (tools, paint, brushes,
+# varnish, more clay). KID falls back to the general CRAFT_KITS["CLAY"].
+CRAFT_KITS_CLAY_YOUNG = [("CLAY",2),("CRAFTACC",2),("STICKER",1),("COLOR",1),("PAINT",1),
+                         ("GLUE",1),("SCISSORS",1),("CRAFTPAPER",1),("PAINTACC",1),("BRUSH",1)]
+CRAFT_KITS_CLAY_ADULT = [("CRAFTACC",2),("PAINT",2),("BRUSH",2),("CLAY",2),("PAINTACC",1),
+                         ("GLUE",1),("CRAFTPAPER",1),("SCISSORS",1),("COLOR",1)]
+# Painting-pad paper kit (paint/brush/palette/colour lead) vs the craft/collage
+# kit in CRAFT_KITS["CRAFTPAPER"].
+CRAFT_KITS_PAPER_PAINT = [("PAINT",2),("BRUSH",2),("PAINTACC",1),("COLOR",1),("CRAFTPAPER",1),
+                          ("CRAFTACC",1),("GLUE",1),("SCISSORS",1),("CLAY",1)]
+
+_CRAFT_AUD_RANK = {"YOUNG": 0, "KID": 1, "ADULT": 2}
+
+
+def _crf_audience(row):
+    """3-tier maturity of a craft item: 'YOUNG' (toddler/preschool toy craft),
+    'KID' (school-age, the neutral default) or 'ADULT' (teen/adult/fine-art).
+    Precedence: adult-by-USE (oil/fine-art/pottery) → young toy → explicit kids
+    → adult brand → kid default."""
+    t = _scb_strip(row.get('Title', ''))
+    b = _scb_strip(row.get('Κατασκευαστής', '')).strip()
+    # (1) adult USE overrides brand — oil paint/brushes & fine-art are never for
+    #     little kids, even from a kid-friendly brand (e.g. "Χρώματα Λαδιού Coolbee").
+    if any(k in t for k in CRAFT_ADULT_TOKENS):
+        return "ADULT"
+    # (2) toddler / preschool toy craft — kid brand, dough token, OR any
+    #     character licence (character craft is kids' toy craft).
+    lic = _scb_licence(row.get('Title', ''))
+    if b in CRAFT_YOUNG_BRANDS or any(k in t for k in CRAFT_YOUNG_TOKENS) \
+            or lic in SCHOOLBAG_KID_ONLY_LICENCES or (lic and t.startswith("AS ")):
+        return "YOUNG"
+    # (3) explicit kids / kid-fun brand
+    if "ΠΑΙΔΙΚ" in t or b in CRAFT_KID_BRANDS:
+        return "KID"
+    # (4) serious / adult craft brand
+    if b in CRAFT_ADULT_BRANDS:
+        return "ADULT"
+    return "KID"
+
+
+def _crf_audience_ok(t_aud, c_aud):
+    """Maturity compatibility gate. Young/kid carousels never show ADULT
+    (oil paint, pottery clay, fine-art paper); adult carousels never show YOUNG
+    (Play-Doh, character toy craft). KID is neutral and always allowed."""
+    if t_aud in ("YOUNG", "KID") and c_aud == "ADULT":
+        return False
+    if t_aud == "ADULT" and c_aud == "YOUNG":
+        return False
+    return True
+
+
+def _crf_score_pool(sub, t_size, t_brand, t_aud, t_color, nts):
+    """Score & sort one craft role pool: size (paper) → brand/system coherence →
+    audience-tier match → colour → sales. Returns a sorted copy with Final_Score
+    and _fil_reasons stamped (reuses the filing reason field for the renderer)."""
+    if sub is None or sub.empty:
+        return sub
+    rows = []
+    for _, r in sub.iterrows():
+        title = r.get('Title', '')
+        score = 0.0
+        why = []
+        c_size = _fil_size(title)
+        if t_size and c_size:
+            if c_size == t_size:
+                score += FILING_S_SIZE_MATCH; why.append(f"size✓{c_size}")
+            else:
+                score += FILING_S_SIZE_CLASH; why.append(f"size✗{c_size}≠{t_size}")
+        elif not t_size and not c_size:
+            score += FILING_S_SIZE_NEUTRAL
+        c_brand = _scb_brand(r)
+        if c_brand and t_brand and c_brand == t_brand:
+            score += FILING_S_BRAND; why.append(f"brand={c_brand}")
+        c_aud = _crf_audience(r)
+        if t_aud in ("YOUNG", "ADULT") and c_aud == t_aud:
+            score += CRAFT_S_AUDIENCE; why.append(f"aud={c_aud}")
+        c_col = _scb_color(title)
+        if c_col:
+            if t_color and c_col == t_color:
+                score += FILING_S_COLOUR_MATCH; why.append(f"colour✓{c_col}")
+            elif c_col in SCHOOLBAG_NEUTRAL_COLORS:
+                score += FILING_S_COLOUR_NEUTRAL; why.append(f"colour~{c_col}")
+        sales = pd.to_numeric(pd.Series([r.get('Sum of Sales', 0)]),
+                              errors='coerce').fillna(0.0).iloc[0]
+        score += min(float(sales), float(FILING_S_SALES_CAP))
+        rc = r.copy()
+        rc['Final_Score'] = score
+        rc['_fil_reasons'] = ", ".join(why) if why else "—"
+        rows.append(rc)
+    return pd.DataFrame(rows).sort_values('Final_Score', ascending=False)
+
+
+def _crf_select_kit(t_subtype, t_aud, t_title):
+    """Pick the kit by sub-type, audience and use."""
+    if t_subtype == "CLAY":
+        if t_aud == "YOUNG":
+            return CRAFT_KITS_CLAY_YOUNG, "dough-play"
+        if t_aud == "ADULT":
+            return CRAFT_KITS_CLAY_ADULT, "sculpting"
+        return CRAFT_KITS["CLAY"], "modelling"
+    if t_subtype == "CRAFTPAPER":
+        tt = _scb_strip(t_title)
+        if any(k in tt for k in CRAFT_PAPER_PAINT_TOKENS):
+            return CRAFT_KITS_PAPER_PAINT, "painting"
+        return CRAFT_KITS["CRAFTPAPER"], "collage"
+    return CRAFT_KITS.get(t_subtype, CRAFT_KITS["CRAFTACC"]), "general"
 
 
 # ═════════════════════════════════════════════════════════════
@@ -21664,12 +21796,13 @@ def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
     t_color = _scb_color(trigger.get('Title', ''))
     t_hier = str(trigger.get('Hierarchy', '')).strip()
     t_subtype = CRAFT_SUBTYPE_BY_HIER.get(t_hier, "CRAFTACC")
-    kit = CRAFT_KITS.get(t_subtype, CRAFT_KITS["CRAFTACC"])
+    t_aud = _crf_audience(trigger)
+    kit, use = _crf_select_kit(t_subtype, t_aud, trigger.get('Title', ''))
 
     diag.append(("0. Trigger",
                  f"{t_brand or '—'} €{t_price:.0f}",
                  f"sub-type={t_subtype} ({CRAFT_SUBTYPE_LABEL.get(t_subtype,'—')}) | "
-                 f"size={t_size or '—'} | colour={t_color or '—'}"))
+                 f"audience={t_aud} | use={use} | size={t_size or '—'} | colour={t_color or '—'}"))
 
     # ── Companion universe: Stationery craft hierarchies + Books clay pools ─
     frames = []
@@ -21689,10 +21822,10 @@ def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
     diag.append(("1. Companion universe", len(uni),
                  "Craft hierarchies (Stationery) + clay (Books), trigger excluded"))
 
-    # ── HARD GATES: price cap + drop zero/blank-priced placeholders ───────
+    # ── HARD GATES: maturity + price cap + drop zero/blank-priced placeholders ─
     gate_notes = ["=== HARD GATES (applied before scoring) ==="]
     price_cap = max(t_price * CRAFT_PRICE_CAP_MULT, CRAFT_PRICE_FLOOR_EUR)
-    kept, dropped_price, dropped_zero = [], 0, 0
+    kept, dropped_price, dropped_zero, dropped_aud = [], 0, 0, 0
     for _, r in uni.iterrows():
         cp = _scb_price(r)
         if cp <= 0:
@@ -21701,13 +21834,20 @@ def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
         if cp > price_cap:
             dropped_price += 1
             continue
+        # maturity: no adult (oil/pottery/fine-art) on kid carousels; no toddler
+        # toy craft on an adult carousel.
+        c_aud = _crf_audience(r)
+        if not _crf_audience_ok(t_aud, c_aud):
+            dropped_aud += 1
+            continue
         kept.append(r)
     gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
     gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
                       f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
-                      f"zero-price dropped {dropped_zero})")
+                      f"zero-price {dropped_zero}; audience[{t_aud}] dropped {dropped_aud})")
     diag.append(("2. After hard gates", len(gated),
-                 f"price>{price_cap:.0f}: {dropped_price} | zero-price: {dropped_zero}"))
+                 f"price>{price_cap:.0f}: {dropped_price} | zero: {dropped_zero} | "
+                 f"audience≠{t_aud}: {dropped_aud}"))
 
     if gated.empty:
         diag.append(("ERROR", 0, "No companions survived the gates"))
@@ -21727,12 +21867,12 @@ def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
             pools[slot_num] = (role_label, pd.DataFrame(), 1, max_total, nts)
             continue
         nts.append(f"  Role pool size: {len(sub)}")
-        scored = _fil_score_pool(sub, t_size, t_brand, "CRAFT", t_color, nts)
+        scored = _crf_score_pool(sub, t_size, t_brand, t_aud, t_color, nts)
         pools[slot_num] = (role_label, scored, 1, max_total, nts)
         diag.append((f"Pool {slot_num} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
 
-    backfill = _fil_score_pool(gated.copy(), t_size, t_brand, "CRAFT", t_color, None)
+    backfill = _crf_score_pool(gated.copy(), t_size, t_brand, t_aud, t_color, None)
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
     used = {tm}
@@ -37054,13 +37194,16 @@ with st.expander("⚙️ System Diagnostics"):
         # v28.64 — craft diagnostic surface: sub-type / size / brand / colour.
         t_hier_cf = str(trigger.get('Hierarchy', '')).strip()
         t_sub_cf = CRAFT_SUBTYPE_BY_HIER.get(t_hier_cf, "CRAFTACC")
+        t_aud_cf = _crf_audience(trigger)
+        _kit_cf, t_use_cf = _crf_select_kit(t_sub_cf, t_aud_cf, trigger.get('Title', ''))
         t_br_cf = _scb_brand(trigger) or '—'
         t_pr_cf = _scb_price(trigger)
         t_sz_cf = _fil_size(trigger.get('Title', '')) or '—'
         t_col_cf = _scb_color(trigger.get('Title', '')) or '—'
         st.markdown(
             f"**Sub-type:** `{t_sub_cf}` ({CRAFT_SUBTYPE_LABEL.get(t_sub_cf,'—')}) | "
-            f"**Size:** `{t_sz_cf}` | **Colour:** `{t_col_cf}` | **Brand:** `{t_br_cf}`"
+            f"**Audience:** `{t_aud_cf}` | **Use:** `{t_use_cf}` | "
+            f"**Colour:** `{t_col_cf}` | **Brand:** `{t_br_cf}`"
         )
         st.markdown(
             f"**Price:** `€{t_pr_cf:.0f}` (companion cap "
