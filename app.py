@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.62.0-2026-06-15"
+APP_BUILD = "parquet-v28.61.16-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.62.0 — Κασετίνες: γέμισε την κασετίνα (theme/licence × ηλικία × χρώμα × brand)· ποτέ 2η κασετίνα/τσάντα· dropdown top-10 + themed SKUs.
+        🟢 Engine v28.61.16 — Σχολικές: κάθε τσάντα με χαρακτήρα/θέμα (Pokemon/Kuromi/NBA) → παιδικό kit· χωρίς adult είδη (Moleskine) σε παιδικά· kid markers ζωγραφικής όχι σχεδίου.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1519,7 +1519,7 @@ SCHOOLBAG_NURSERY_SLOTS = [
                                           "ΦΑΓΗΤΟΔΟΧΕΙΑ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                         1, 1),
     (3,  'Κασετίνα',         'CASE',     ["ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ", "ΜΟΛΥΒΟΘΗΚΕΣ"],                        1, 1),
     (4,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                                    1, 2),
-    (5,  'Μαρκαδόροι Ζωγρ.', 'DRAWMARK', ["ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ", "ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
+    (5,  'Μαρκαδόροι Ζωγρ.', 'DRAWMARK', ["ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
     (6,  'Χρώματα',          'PAINT',    ["ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"],                                    1, 1),
     (7,  'Μπλοκ Ζωγραφικής', 'PAD',      ["ΜΠΛΟΚ-ΧΑΡΤΙΑ"],                                          1, 1),
     (8,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
@@ -1536,7 +1536,7 @@ SCHOOLBAG_PRIMARY_SLOTS = [
     (5,  'Φαγητοθήκη',       'LUNCH',    ["ΤΣΑΝΤΑΚΙΑ ΦΑΓΗΤΟΥ", "ΤΣΑΝΤΕΣ ΦΑΓΗΤΟΥ",
                                           "ΦΑΓΗΤΟΔΟΧΕΙΑ", "ΔΟΧΕΙΑ ΦΑΓΗΤΟΥ"],                         1, 1),
     (6,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                                    1, 1),
-    (7,  'Μαρκαδόροι',       'MARKER',   ["ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ"],     1, 1),
+    (7,  'Μαρκαδόροι',       'MARKER',   ["ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
     (8,  'Γόμα / Ξύστρα',    'ERASER',   ["ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ"],                                      1, 2),
     (9,  'Στυλό',            'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                          1, 1),
     (10, 'Κόλλες / Ψαλίδι',  'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ", "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],             1, 1),
@@ -1600,8 +1600,11 @@ SCHOOLBAG_LICENCES = [
     ("BARBIE",       ["BARBIE", "ΜΠΑΡΜΠΙ"]),
     ("MINECRAFT",    ["MINECRAFT"]),
     ("SPIDERMAN",    ["SPIDER-MAN", "SPIDERMAN", "SPIDER MAN"]),
-    ("HARRY POTTER", ["HARRY POTTER"]),
+    ("HARRY POTTER", ["HARRY POTTER", "HOGWARTS", "GRYFFINDOR", "RAVENCLAW",
+                      "SLYTHERIN", "HUFFLEPUFF", "HERMIONE", "DUMBLEDORE"]),
     ("POKEMON",      ["POKEMON", "PIKACHU"]),
+    ("KUROMI",       ["KUROMI"]),
+    ("HELLO KITTY",  ["HELLO KITTY", "SANRIO", "MY MELODY", "CINNAMOROLL"]),
     ("BLUEY",        ["BLUEY"]),
     ("PAW PATROL",   ["PAW PATROL"]),
     ("PJ MASKS",     ["PJ MASK", "PJMASK"]),
@@ -1622,6 +1625,11 @@ SCHOOLBAG_LICENCES = [
     ("MARVEL",       ["MARVEL", "AVENGERS"]),
     ("LEGO",         ["LEGO"]),
     ("DISNEY",       ["DISNEY"]),
+    # Tween/character lines a distributor (GRAFFITI) also carries — naming
+    # them lets a Gorjuss/Paul-Frank item read as a RIVAL theme on a
+    # different-character bag (off-theme), not a plain same-brand pick.
+    ("GORJUSS",      ["GORJUSS", "SANTORO"]),
+    ("PAUL FRANK",   ["PAUL FRANK"]),
 ]
 
 # Licences that ONLY suit small kids → dropped from a teen/adult bag's kit.
@@ -2062,6 +2070,12 @@ SCHOOLBAG_PRICE_CAP_MULT  =     1.1   # companion ≤ bag×1.1 (else dropped)
 # as a last resort when a slot's pool is character-only.
 SCHOOLBAG_S_OFFTHEME      = -80_000
 
+# Premium ADULT stationery (Moleskine notebooks, Kaweco/Lamy pens, Office-Log
+# organisers, Posh+Pop flasks) has no place in a small child's kit — demote
+# it below every kid-appropriate companion. KID TIERS ONLY; the teen/uni kit
+# keeps these (they are exactly what an older student buys).
+SCHOOLBAG_S_ADULT_IN_KID  = -100_000
+
 # Cost priority for cheap bags (v28.61.7): for a budget bag the buyer is
 # price-sensitive, so steepen the per-€ price penalty. Kept below the colour
 # gap (MATCH−NEUTRAL = 35k) so "make everything black" still wins over a
@@ -2109,160 +2123,6 @@ SCHOOLBAG_S_COLOR_MATCH      =  70_000   # companion shares the bag's colour fam
 SCHOOLBAG_S_COLOR_NEUTRAL    =  35_000   # companion is a neutral → coordinates always
 SCHOOLBAG_S_COLOR_CLASH      = -45_000   # bright clash on an OLDER/lifestyle bag
 SCHOOLBAG_S_COLOR_CLASH_KIDS = -15_000   # gentler clash for the (bright) kids catalogue
-
-
-# ═════════════════════════════════════════════════════════════
-# 🟢 PENCIL CASES CONFIGURATION (Κασετίνες — "γέμισε την κασετίνα")
-# ═════════════════════════════════════════════════════════════
-# Trigger source: Stationery sheet, Level 2 = 'Bags',
-# Hierarchy = 'ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ' (736 SKUs). SIBLING of the School-Bags
-# engine — same data profile, same HYBRID title-parse approach — but the
-# carousel here completes what goes *inside* the case (the writing kit),
-# and NEVER recommends a 2nd pencil case / pencil holder / school bag.
-#
-# DATA AUDIT (why HYBRID, title-parse-driven — identical to school bags):
-#   • Structured spec cols (Είδος 2.7 %, Τύπος2 0.1 %, the pen specs 0 %) are
-#     useless; there is no separate pencil-case spec sheet.
-#   • Sum of Sales covers only ~43 % and is € of mixed magnitude → tiebreak.
-#   • The REAL signal is the Title + LIST PRICE + Κατασκευαστής (98.9 % filled):
-#       – character/licence  (Frozen, Barbie, Spiderman, Pokemon, Stitch,
-#                             Minecraft, Gabby, Naruto, Unicorn, Hello Kitty…)
-#       – shape / fill word  (Τριγωνική / Οβάλ / Διπλή / Γεμάτη)
-#       – brand              (CITY, GIM, MUST, Legami, Maped, Coolpack…)
-#       – price              (€2–30, q25–q75 €8–14, median €10)
-#   • NOTE: pencil-case titles carry NO age word (Νηπίου/Δημοτικ/Γυμνασ = 0),
-#     so age routing falls on the licence path: a kid-only licence (Frozen…)
-#     → PRIMARY kit; everything else → the neutral TEEN_ADULT study kit.
-#
-# RECOMMENDATION DEPTH — HYBRID, reuses the School-Bags scorer & vocab
-# (_scb_licence / _scb_color / _scb_brand / _scb_age_persona /
-#  _scb_score_companion + SCHOOLBAG_LICENCES / _COLORS / _KID_ONLY / _ADULT):
-#   1. CHARACTER/LICENCE MATCH — dominant boost (Frozen case → Frozen pencils).
-#   2. AGE-BAND COHERENCE — routes the kit (kids colour-led vs older study-led)
-#      and hard-blocks toddler-only characters on a neutral/older case.
-#   3. PRICE SANITY — a companion is never (much) dearer than the case.
-#   4. BRAND ecosystem + SALES tiebreaker.
-
-PENCILCASE_L2 = "Bags"
-PENCILCASE_TRIGGER_HIERARCHY = "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ"
-PENCILCASE_SLOT_TARGET = 10
-
-# 🧪 Themed test cases — pinned into the dropdown ALONGSIDE the top-N
-#    best-sellers (union), so personas (neutral/Legami, kid licence, teen
-#    licence) can be eyeballed quickly. One representative SKU per theme.
-PENCILCASE_TEST_SKUS = {
-    "2109506",  # LEGAMI Kawaii Ladybug (top seller)     → neutral/lifestyle
-    "2025239",  # LEGAMI Panda
-    "2109519",  # LEGAMI Unicorn mini
-    "1821433",  # FROZEN  (Disney Frozen 2)              → kid kit
-    "1949322",  # BARBIE  (Maped XXL Fancy Barbie)
-    "1953754",  # GABBY   (Gabby's Dollhouse)
-    "2030224",  # STITCH  (Coolpack Disney Stitch)
-    "2042889",  # SPIDERMAN (Gim Spiderman City)         → teen licence
-    "1826566",  # POKEMON (Graffiti Pokemon)
-    "2043948",  # MINECRAFT (Graffiti Minecraft, full)
-    "1823213",  # NARUTO  (Gim Naruto Letters)
-}
-# Limit the dropdown to the top-N best-selling cases (by Sum of Sales). The
-# SKUs above are ADDED on top (union). Set both to None/0 to show all 736.
-PENCILCASE_TEST_TOP_N = 10
-
-# ── Companion hierarchies = the CONTENTS of a pencil case. Every value exists
-#    in the Stationery sheet (+ Books for character depth). DELIBERATELY
-#    ABSENT: ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ / ΣΧΟΛΙΚΕΣ ΚΑΣΕΤΙΝΕΣ / ΜΟΛΥΒΟΘΗΚΕΣ (never a 2nd
-#    case or holder — printer-cartridge rule) and ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ (never a bag).
-#    Also absent: bottles / lunch boxes (those belong to the BAG kit, not
-#    inside a pencil case).
-PENCILCASE_COMPANION_HIERARCHIES = {
-    # writing core
-    "ΜΟΛΥΒΙΑ", "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ",
-    "ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ", "ΔΙΟΡΘΩΤΙΚΑ",
-    # colour & art (kids)
-    "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ", "ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ",
-    "ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ",
-    "ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ", "ΜΠΛΟΚ-ΧΑΡΤΙΑ", "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS",
-    # study & organise (teen / adult)
-    "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ",
-    "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ", "ΤΕΤΡΑΔΙΑ",
-    # craft
-    "ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ",
-}
-
-# ── AGE-BASED slot lists (same three personas as school bags). Tuple is
-#    (slot, role_label, role_key, [hierarchies], max_round_1, max_total).
-#    Slot order follows companion sales rank within each band.
-
-# NURSERY — colour / craft led, NO pens / highlighters / geometry / correction.
-PENCILCASE_NURSERY_SLOTS = [
-    (1,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ"],                     1, 2),
-    (2,  'Μαρκαδόροι Ζωγρ.', 'DRAWMARK', ["ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ", "ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
-    (3,  'Κηρομπογιές',      'CRAYON',   ["ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ"],                                    1, 1),
-    (4,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
-    (5,  'Γόμα',             'ERASER',   ["ΓΟΜΕΣ"],                                                 1, 1),
-    (6,  'Ξύστρα',           'SHARP',    ["ΞΥΣΤΡΕΣ"],                                               1, 1),
-    (7,  'Χρώματα',          'PAINT',    ["ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"],                                    1, 1),
-    (8,  'Μπλοκ Ζωγραφικής', 'PAD',      ["ΜΠΛΟΚ-ΧΑΡΤΙΑ"],                                          1, 1),
-    (9,  'Αυτοκόλλητα',      'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                  1, 1),
-    (10, 'Κόλλα / Ψαλίδι',   'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ"],                                     1, 1),
-]
-
-# PRIMARY — the classic Δημοτικό fill, sales-ordered (pencils #1, colours #2…).
-PENCILCASE_PRIMARY_SLOTS = [
-    (1,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 2),
-    (2,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ"],                     1, 1),
-    (3,  'Γόμα',             'ERASER',   ["ΓΟΜΕΣ"],                                                 1, 1),
-    (4,  'Ξύστρα',           'SHARP',    ["ΞΥΣΤΡΕΣ"],                                               1, 1),
-    (5,  'Στυλό',            'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                          1, 1),
-    (6,  'Μαρκαδόροι',       'MARKER',   ["ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ"],     1, 1),
-    (7,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ"],                                              1, 1),
-    (8,  'Γεωμετρικά',       'GEOMETRY', ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ"],                 1, 1),
-    (9,  'Κόλλα / Ψαλίδι',   'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ"],                                     1, 1),
-    (10, 'Αυτοκόλλητα',      'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                  1, 1),
-]
-
-# TEEN/ADULT — Γυμνάσιο-Λύκειο / neutral (Legami, plain) study staples,
-# sales-ordered (gel pens, pencils, highlighters, geometry top sellers).
-PENCILCASE_TEEN_SLOTS = [
-    (1,  'Στυλό Gel',        'PEN_GEL',   ["ΣΤΥΛΟ GEL"],                                            1, 2),
-    (2,  'Μολύβια',          'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                              1, 1),
-    (3,  'Μαρκαδόροι Υπογρ.', 'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                             1, 1),
-    (4,  'Γόμα',             'ERASER',    ["ΓΟΜΕΣ"],                                                1, 1),
-    (5,  'Ξύστρα',           'SHARP',     ["ΞΥΣΤΡΕΣ"],                                              1, 1),
-    (6,  'Στυλό Διαρκείας',  'PEN',       ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],               1, 1),
-    (7,  'Γεωμετρικά',       'GEOMETRY',  ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ"],                1, 1),
-    (8,  'Διορθωτικά',       'CORRECTION',["ΔΙΟΡΘΩΤΙΚΑ"],                                           1, 1),
-    (9,  'Τετράδια',         'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ"],                                             1, 1),
-    (10, 'Σημειώσεις',       'STUDY',     ["POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],    1, 1),
-]
-
-PENCILCASE_SLOTS_BY_PERSONA = {
-    'NURSERY':    PENCILCASE_NURSERY_SLOTS,
-    'PRIMARY':    PENCILCASE_PRIMARY_SLOTS,
-    'TEEN_ADULT': PENCILCASE_TEEN_SLOTS,
-}
-
-PENCILCASE_MARKETING_COPY = {
-    'Μολύβια':           "Γέμισε την κασετίνα σου.",
-    'Ξυλομπογιές':       "Χρώμα & δημιουργικότητα.",
-    'Μαρκαδόροι Ζωγρ.':  "Ζωντάνεψε τις ζωγραφιές σου.",
-    'Κηρομπογιές':       "Απαλό χρώμα για μικρά χέρια.",
-    'Γόμα':              "Καθαρές διορθώσεις.",
-    'Ξύστρα':            "Πάντα κοφτερή μύτη.",
-    'Χρώματα':           "Ώρα για δημιουργία.",
-    'Μπλοκ Ζωγραφικής':  "Λευκές σελίδες για ιδέες.",
-    'Αυτοκόλλητα':       "Διακόσμησε τα πράγματά σου.",
-    'Κόλλα / Ψαλίδι':    "Για κάθε χειροτεχνία.",
-    'Στυλό':             "Γράψε με άνεση.",
-    'Στυλό Gel':         "Απαλό, καθαρό γράψιμο.",
-    'Στυλό Διαρκείας':   "Αξιόπιστο σε κάθε σημείωση.",
-    'Μαρκαδόροι':        "Χρώμα σε κάθε σχέδιο.",
-    'Μαρκαδόροι Υπογρ.': "Τόνισε ό,τι μετράει.",
-    'Τετράδια':          "Έτοιμα για τη νέα χρονιά.",
-    'Γεωμετρικά':        "Ακρίβεια στα μαθηματικά.",
-    'Διορθωτικά':        "Διόρθωσε στη στιγμή.",
-    'Σημειώσεις':        "Οργάνωσε & σημείωσε.",
-    'Σχολικά Είδη':      "Ιδανική προσθήκη στην κασετίνα σου.",
-}
 
 
 # ═════════════════════════════════════════════════════════════
@@ -11538,43 +11398,6 @@ else:
                 sel = st.sidebar.selectbox("", periph['Title'].unique(), label_visibility="collapsed", key=f"periph_{active_cluster}_sel")
                 trigger = periph[periph['Title']==sel].iloc[0] if sel else None
 
-    elif active_cluster == "Pencil Cases":
-        # v28.62 — Κασετίνες. Dedicated theme-aware engine (NOT the generic
-        # stationery slot path). Triggers live in the Stationery sheet,
-        # Hierarchy = 'ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ'. Dropdown = top-N best-sellers ∪
-        # themed test SKUs (mirrors the School-Bags picker).
-        if df_stationery.empty:
-            st.sidebar.warning(
-                "Δεν βρέθηκε πηγή για Κασετίνες (sheet Stationery/Bags). "
-                "Ελέγξτε ότι το Parquet περιέχει το Stationery sheet."
-            )
-        else:
-            hier_clean = df_stationery['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
-            pc_pool = df_stationery[hier_clean == PENCILCASE_TRIGGER_HIERARCHY].copy()
-
-            if not pc_pool.empty and (PENCILCASE_TEST_TOP_N or PENCILCASE_TEST_SKUS):
-                pc_pool = pc_pool.assign(
-                    _pc_sales=pd.to_numeric(pc_pool['Sum of Sales'], errors='coerce').fillna(0.0)
-                )
-                _mat = (pc_pool['Material'].astype(str).str.strip()
-                        .str.replace(r'\.0$', '', regex=True))
-                _parts = []
-                if PENCILCASE_TEST_TOP_N:
-                    _parts.append(pc_pool.sort_values('_pc_sales', ascending=False)
-                                  .head(int(PENCILCASE_TEST_TOP_N)))
-                if PENCILCASE_TEST_SKUS:
-                    _parts.append(pc_pool[_mat.isin(PENCILCASE_TEST_SKUS)])
-                pc_pool = (pd.concat(_parts)
-                           .drop_duplicates(subset=['Material'])
-                           .sort_values('_pc_sales', ascending=False))
-
-            if pc_pool.empty:
-                st.sidebar.warning("Δεν βρέθηκαν Κασετίνες στο sheet Stationery (Bags).")
-            else:
-                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Κασετίνα</p>', unsafe_allow_html=True)
-                sel = st.sidebar.selectbox("", pc_pool['Title'].dropna().unique(), label_visibility="collapsed", key="pencilcase_sel")
-                trigger = pc_pool[pc_pool['Title']==sel].iloc[0] if sel else None
-
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
             st.sidebar.warning("Sheet 'Stationery' is empty or missing.")
@@ -20391,6 +20214,21 @@ def _scb_novelty_brand(text):
     return any(b in t for b in SCHOOLBAG_NOVELTY_BRANDS)
 
 
+# Premium / office stationery brands — fine for a teen/uni kit, wrong for a kid.
+SCHOOLBAG_ADULT_STATIONERY = [
+    'MOLESKINE', 'KAWECO', 'LAMY', 'PARKER', 'WATERMAN', 'CROSS PENS',
+    'LEUCHTTURM', 'RHODIA', 'FILOFAX', 'OFFICE LOG', 'OFFICELOG',
+    'POSH+POP', 'POSH POP', 'POSH + POP', 'PARKER',
+]
+
+
+def _scb_adult_stationery(text):
+    """True if the title names a premium/office stationery brand (Moleskine,
+    Kaweco, Office-Log…) → demoted on a kid's bag, kept on a teen/uni bag."""
+    t = " " + _scb_strip(text) + " "
+    return any(b in t for b in SCHOOLBAG_ADULT_STATIONERY)
+
+
 def _scb_color(text):
     """First colour family whose pattern appears in the (stripped) title.
     Returns a canonical family (e.g. 'BLACK','BLUE') or None when the title
@@ -20440,9 +20278,13 @@ def _scb_age_persona(trigger, t_licence):
     # young child's bag even without an age word in the title.
     if t_licence in SCHOOLBAG_KID_ONLY_LICENCES:
         return 'PRIMARY', 'Παιδικό (χαρακτήρας)'
-    # No kid signal at all → a plain / generic bag (often a cheap dark one) is
-    # rarely a small child's. Default to the NEUTRAL student kit, not the
-    # youngest tier — avoids Dino/Pirate/colouring-pencil picks on a plain bag.
+    # ANY other licensed character (Pokemon, NBA, Kuromi…) or a kid decoration
+    # motif still marks a CHILD'S bag — it belongs in the kid kit, never the
+    # neutral teen/uni kit (which would fill a Pokemon bag with Moleskine &
+    # document wallets). Only a truly PLAIN / lifestyle bag stays TEEN_ADULT.
+    if t_licence or _scb_decorated(title):
+        return 'PRIMARY', 'Παιδικό (θέμα)'
+    # No character at all → plain / generic bag → neutral student kit.
     return 'TEEN_ADULT', 'Ουδέτερο/Γενικό'
 
 
@@ -20473,6 +20315,7 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
 
         score = 0.0
         reasons = []
+        off_theme = False
         # 1. Character/licence match — the dominant cross-sell signal.
         if t_licence and c_lic == t_licence:
             score += SCHOOLBAG_S_LICENCE_MATCH
@@ -20486,9 +20329,15 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
             if c_lic and c_lic == t_licence:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("on-theme")
-            elif c_lic:                       # any other character → off-theme
+            elif (c_lic and c_lic != t_licence) or (t_licence and _scb_decorated(title)):
+                # A DIFFERENT character: a mapped rival licence OR (on a themed
+                # bag) a decoration motif that isn't the bag's own theme — e.g. a
+                # Kuromi/Gorjuss/Hermione item on a Bluey bag. GRAFFITI/GIM etc.
+                # distribute MANY franchises, so "same brand" is NOT theme
+                # coherence — push the rival character below every plain item.
                 score += SCHOOLBAG_S_OFFTHEME
                 reasons.append("off-theme")
+                off_theme = True
             else:                             # plain companion → coherent
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("kid-ok")
@@ -20514,8 +20363,17 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
                 score += col_delta
                 if col_reason:
                     reasons.append(col_reason)
+        # 3b. Premium adult stationery (Moleskine/Kaweco/Office-Log/Posh+Pop)
+        #     has no place in a small child's kit — push it below every kid
+        #     companion. Kid tiers only; the teen/uni kit keeps these.
+        if not is_older and _scb_adult_stationery(title):
+            score += SCHOOLBAG_S_ADULT_IN_KID
+            reasons.append("adult-stationery")
         # 4. Brand ecosystem (GIM / Polo / Eastpak licensed lines cluster).
-        if t_brand and c_brand == t_brand:
+        #    NOT for an off-theme item: a same-distributor rival character
+        #    (Graffiti-Kuromi on a Graffiti-Bluey bag) must not be rescued by
+        #    the maker bonus — that is exactly what put Kuromi on a Bluey kit.
+        if t_brand and c_brand == t_brand and not off_theme:
             score += SCHOOLBAG_S_BRAND_MATCH
             reasons.append(f"brand={c_brand}")
         # 5. Availability.
@@ -20727,197 +20585,6 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_filled}/{SCHOOLBAG_SLOT_TARGET} slots in {round_idx} rounds"))
-
-    if all_recs:
-        recs_df = pd.DataFrame(all_recs)
-        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
-        return recs_df, diag, slot_notes, recs_df
-    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
-
-
-# ═════════════════════════════════════════════════════════════
-# 🟢 PENCIL CASES ENGINE — Κασετίνες (cross-sell: γέμισε την κασετίνα)
-# ═════════════════════════════════════════════════════════════
-# SIBLING of run_schoolbags_engine: reuses every School-Bags helper
-# (_scb_licence / _scb_color / _scb_brand / _scb_age_persona /
-#  _scb_score_companion) and the SCHOOLBAG_LICENCES / _COLORS / _KID_ONLY /
-#  _ADULT vocab — a Frozen case and a Frozen bag share the same theme world.
-# Differences from school bags:
-#   • Trigger hierarchy is ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ (not ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ).
-#   • Companion universe = the CONTENTS of a case (writing/colour/study kit);
-#     the case itself, pencil holders and school bags are excluded → never a
-#     2nd case / holder / bag.
-#   • No embedded spec lookup (pencil cases have no spec sheet) — colour &
-#     licence come purely from the Title.
-
-def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=None):
-    """Build exactly 10 cross-sell slots for a pencil-case trigger.
-    HYBRID character × age × price × brand. Cross-sell only (no 2nd case)."""
-    diag = []
-    slot_notes = {}
-    all_recs = []
-
-    tm = trigger['Material']
-    t_brand = _scb_brand(trigger)
-    t_price = _scb_price(trigger)
-    # Licence & colour from the title (pencil cases carry no spec sheet).
-    t_licence = _scb_licence(trigger.get('Title', ''))
-    t_color = _scb_color(trigger.get('Title', ''))
-    persona, band = _scb_age_persona(trigger, t_licence)
-    is_older = (persona == 'TEEN_ADULT')
-    slot_list = PENCILCASE_SLOTS_BY_PERSONA.get(persona, PENCILCASE_PRIMARY_SLOTS)
-
-    diag.append(("0. Trigger",
-                 f"{t_brand or '—'} €{t_price:.0f}",
-                 f"licence={t_licence or '—'} | colour={t_color or '—'} | "
-                 f"persona={persona} ({band})"))
-
-    # ── Build the companion universe (Stationery + Books for character
-    #    depth), deduped, trigger & all cases/holders/bags excluded. ───────
-    frames = [df_stationery] if df_stationery is not None else []
-    if df_books is not None and not df_books.empty:
-        frames.append(df_books)
-    if not frames:
-        diag.append(("ERROR", 0, "No Stationery/Books source — engine cannot run"))
-        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
-    uni = pd.concat(frames, ignore_index=True)
-    hier = uni['Hierarchy'].fillna('').astype(str).str.strip()
-    uni = uni[hier.isin(PENCILCASE_COMPANION_HIERARCHIES)].copy()
-    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
-    diag.append(("1. Companion universe", len(uni),
-                 "Stationery+Books, case-contents hierarchies only, no cases/bags"))
-
-    # ── HARD GATES (price cap + age) applied before scoring ───────────────
-    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
-    price_cap = max(t_price * SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR)
-    kept, dropped_price, dropped_age = [], 0, 0
-    for _, r in uni.iterrows():
-        cp = _scb_price(r)
-        # (a) A companion is never (much) dearer than the case itself.
-        if cp > price_cap:
-            dropped_price += 1
-            continue
-        # (b) No toddler-only character supplies on a neutral/older case.
-        if is_older:
-            c_lic = _scb_licence(r.get('Title', ''))
-            if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
-                dropped_age += 1
-                gate_notes.append(f"  ✗ DROP kid-licence [{c_lic}] on TEEN/ADULT case: "
-                                  f"{str(r.get('Title',''))[:48]}")
-                continue
-        kept.append(r)
-    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
-    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
-                      f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
-                      f"age dropped {dropped_age})")
-    diag.append(("2. After hard gates", len(gated),
-                 f"price>{price_cap:.0f}: {dropped_price} | kid-on-older: {dropped_age}"))
-
-    if gated.empty:
-        diag.append(("ERROR", 0, "No companions survived the gates"))
-        slot_notes[0] = gate_notes
-        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
-
-    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
-
-    # ── Build & score each role pool from the persona's slot list ─────────
-    pools = {}
-    for slot_num, role_label, role_key, hierarchies, max_r1, max_total in slot_list:
-        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) "
-               f"| max_r1={max_r1} | max_total={max_total} ==="]
-        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
-        if sub.empty:
-            nts.append("  ⚠ No candidates — slot filled from backfill")
-            pools[slot_num] = (role_label, pd.DataFrame(), max_r1, max_total, nts)
-            continue
-        nts.append(f"  Role pool size: {len(sub)}")
-        scored = _scb_score_companion(sub, role_key, t_licence, is_older,
-                                     t_brand, t_price, t_color, nts)
-        pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
-        diag.append((f"Pool {slot_num} ({role_label})",
-                     len(scored) if scored is not None else 0, role_key))
-
-    # ── Universal backfill: whole gated pool scored generically ───────────
-    backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, is_older,
-                                   t_brand, t_price, t_color, None)
-
-    # ── Round-robin fill until 10 slots ───────────────────────────────────
-    used = {tm}
-    cursors = {k: 0 for k in pools}
-    taken = {k: 0 for k in pools}
-    slot_filled = 0
-    round_idx = 0
-    while slot_filled < PENCILCASE_SLOT_TARGET:
-        progress = False
-        round_idx += 1
-        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
-            if slot_filled >= PENCILCASE_SLOT_TARGET:
-                break
-            if scored is None or scored.empty:
-                continue
-            if max_total is not None and taken[rank] >= max_total:
-                continue
-            take_n = max_r1 if round_idx == 1 else 1
-            if max_total is not None:
-                take_n = min(take_n, max_total - taken[rank])
-            cur = cursors[rank]
-            done = 0
-            while done < take_n and cur < len(scored) and slot_filled < PENCILCASE_SLOT_TARGET:
-                row = scored.iloc[cur]
-                cur += 1
-                if row['Material'] in used:
-                    continue
-                slot_filled += 1
-                rc = row.copy()
-                rc['Assigned_Slot'] = slot_filled
-                rc['Slot_Role'] = role_label
-                rc['Marketing_Copy'] = PENCILCASE_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στην κασετίνα σου.")
-                rc['Item_Rank'] = round_idx
-                all_recs.append(rc)
-                used.add(row['Material'])
-                done += 1
-                taken[rank] += 1
-                progress = True
-                slot_notes.setdefault(slot_filled, []).append(
-                    f"Round {round_idx} | '{role_label}' | "
-                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
-                    f"{str(row.get('_scb_reasons',''))} | "
-                    f"{str(row.get('Title',''))[:60]}")
-            cursors[rank] = cur
-        if not progress:
-            break
-
-    # ── Mandatory backfill: reach 10/10 from the gated floor ──────────────
-    if slot_filled < PENCILCASE_SLOT_TARGET and not backfill.empty:
-        for _, row in backfill.iterrows():
-            if slot_filled >= PENCILCASE_SLOT_TARGET:
-                break
-            if row['Material'] in used:
-                continue
-            slot_filled += 1
-            rc = row.copy()
-            rc['Assigned_Slot'] = slot_filled
-            role_label = 'Σχολικά Είδη'
-            rc['Slot_Role'] = role_label
-            rc['Marketing_Copy'] = PENCILCASE_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στην κασετίνα σου.")
-            rc['Item_Rank'] = 99
-            all_recs.append(rc)
-            used.add(row['Material'])
-            slot_notes.setdefault(slot_filled, []).append(
-                f"BACKFILL | '{role_label}' | "
-                f"{str(row.get('Title',''))[:60]}")
-
-    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
-    pool_diag = list(gate_notes) + [""]
-    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
-        pool_diag.extend(nts)
-        pool_diag.append(f"  → consumed {taken[rank]} / "
-                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
-        pool_diag.append("")
-    slot_notes[0] = pool_diag
-
-    diag.append(("TOTAL", len(all_recs),
-                 f"Filled {slot_filled}/{PENCILCASE_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -35653,17 +35320,6 @@ elif active_cluster == "School Bags":
     recs, diag, slot_notes, full_candidates = run_schoolbags_engine(
         trigger, df_stationery, df_books, df_history)
     slot_diag = []
-elif active_cluster == "Pencil Cases":
-    # v28.62 — Κασετίνες cross-sell ("γέμισε την κασετίνα"). Dedicated
-    # theme-aware engine (NOT the generic stationery slot path). SIBLING of
-    # run_schoolbags_engine: character/licence match DOMINATES → age-band
-    # coherence (kids colour-led vs older study-led; blocks toddler
-    # characters on a neutral case) → price sanity (companion ≤ case) →
-    # brand + sales tiebreak → role round-robin builds the 10-piece writing
-    # kit, never a 2nd case / holder / bag.
-    recs, diag, slot_notes, full_candidates = run_pencilcases_engine(
-        trigger, df_stationery, df_books, df_history)
-    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -35860,9 +35516,6 @@ if not recs.empty:
         elif active_cluster == "School Bags":
             # Per-role school-kit copy (engine stamps Marketing_Copy per row).
             marketing_text = str(r.get('Marketing_Copy', SCHOOLBAG_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στο kit σου.")))
-        elif active_cluster == "Pencil Cases":
-            # Per-role pencil-case copy (engine stamps Marketing_Copy per row).
-            marketing_text = str(r.get('Marketing_Copy', PENCILCASE_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στην κασετίνα σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -35902,8 +35555,6 @@ if not recs.empty:
         header_text = "Όλα για το πατίνι σου"
     elif active_cluster == "School Bags":
         header_text = "Έτοιμοι για το σχολείο"
-    elif active_cluster == "Pencil Cases":
-        header_text = "Γέμισε την κασετίνα σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -36092,23 +35743,6 @@ with st.expander("⚙️ System Diagnostics"):
             f"€{max(t_pr_sb*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
             f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
-    elif active_cluster == "Pencil Cases":
-        # v28.62 — pencil-case diagnostic surface: same title-parsed signals
-        # the (shared) engine ranks & gates on; structured spec cols near-empty.
-        t_lic_pc = _scb_licence(trigger.get('Title', '')) or '—'
-        t_br_pc = _scb_brand(trigger) or '—'
-        t_pr_pc = _scb_price(trigger)
-        t_col_pc = _scb_color(trigger.get('Title', '')) or '—'
-        t_pers_pc, t_band_pc = _scb_age_persona(trigger, _scb_licence(trigger.get('Title', '')))
-        st.markdown(
-            f"**Character/Licence:** `{t_lic_pc}` | **Colour:** `{t_col_pc}` | "
-            f"**Persona:** `{t_pers_pc}` ({t_band_pc}) | **Brand:** `{t_br_pc}`"
-        )
-        st.markdown(
-            f"**Price:** `€{t_pr_pc:.0f}` (companion cap "
-            f"€{max(t_pr_pc*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
-            f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
-        )
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
@@ -36165,12 +35799,6 @@ with st.expander("⚙️ System Diagnostics"):
     elif active_cluster == "School Bags":
         # v28.61 — school-bag attributes: the engine parses character/age from
         # the Title and reads brand + price; structured spec cols are sparse.
-        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
-                              'Κατασκευαστής','Είδος','Τύπος2',
-                              'Sum of Sales','LIST PRICE','AVAILABILITY']
-    elif active_cluster == "Pencil Cases":
-        # v28.62 — pencil-case attributes: licence/colour parsed from Title,
-        # brand + price read directly; structured spec cols are near-empty.
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
