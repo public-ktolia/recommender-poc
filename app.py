@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.62.3-2026-06-15"
+APP_BUILD = "parquet-v28.63.0-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.62.3 — Κασετίνες: γεμάτη → συμπληρωματικά (όχι ξανά γραφική ύλη)· χωρίς ανταλλακτικά· cute → on-brand γόμες· theme × ηλικία × χρώμα.
+        🟢 Engine v28.63.0 — Είδη Αρχειοθέτησης: ανά τύπο (Κλασέρ/Ντοσιέ/Φάκελος…) → συμπληρωματικά office· μέγεθος × συμβατότητα × brand × χρώμα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2392,6 +2392,128 @@ PENCILCASE_MARKETING_COPY = {
     'Φάκελος':           "Μετέφερε τις εργασίες σου.",
     'Σχολικά Είδη':      "Ιδανική προσθήκη στην κασετίνα σου.",
 }
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 FILING / ARCHIVING CONFIGURATION (Είδη Αρχειοθέτησης)
+# ═════════════════════════════════════════════════════════════
+# Functional office cross-sell — NO theme / licence / cute machinery. The
+# trigger is any filing product (Κλασέρ, Ντοσιέ, Φάκελος, Ζελατίνα, …); the
+# engine detects its SUB-TYPE and builds a complementary kit (a Κλασέρ pulls
+# dividers, punched pockets, a hole-punch, an archive box…). Ranking signals:
+#   • size coherence (Α4 — Greek alpha — is the only meaningful token)
+#   • the "Για Ντοσιέ / Για Κλασέρ" compatibility tag carried by dividers
+#   • brand / system coherence (Κατασκευαστής is 97 % populated here, reliable)
+#   • colour-family coordination (office neutrals coordinate)
+#   • sales tiebreak
+# Same sub-type IS allowed (filing in sets is normal) but capped & after the
+# complements; the exact same SKU is never recommended back.
+
+# Trigger hierarchies the picker offers (the 9 Public.gr sub-categories).
+FILING_TRIGGER_HIERARCHIES = {
+    "ΚΛΑΣΕΡ", "ΝΤΟΣΙΕ", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ",
+    "ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ", "ΦΑΚΕΛΟΙ", "ΘΗΚΕΣ-ΖΕΛΑΤΙΝΕΣ",
+    "ΧΑΡΤΟΘΗΚΕΣ ΓΡΑΦΕΙΟΥ", "ΘΗΚΕΣ ΠΕΡΙΟΔΙΚΩΝ", "ΔΙΑΧΩΡΙΣΤΙΚΑ",
+    "ΚΟΥΤΙΑ ΑΡΧΕΙΟΥ", "ACCESSORIES ΓΡΑΦΕΙΟΥ",
+}
+
+# Role catalog: role-key → (carousel label, marketing copy, hierarchy pool).
+# The engine picks the best item from the pool by the functional score.
+FILING_ROLES = {
+    "DIVIDER":   ("Διαχωριστικά",      "Οργάνωσε τα θέματά σου.",        ["ΔΙΑΧΩΡΙΣΤΙΚΑ"]),
+    "POCKET":    ("Ζελατίνες",         "Προστάτεψε κάθε έγγραφο.",       ["ΘΗΚΕΣ-ΖΕΛΑΤΙΝΕΣ"]),
+    "PUNCH":     ("Περφορατέρ",        "Τρύπησε & αρχειοθέτησε.",        ["ΠΕΡΦΟΡΑΤΕΡ"]),
+    "KLASER":    ("Κλασέρ",            "Αρχειοθέτησε με τάξη.",          ["ΚΛΑΣΕΡ"]),
+    "NTOSIE":    ("Ντοσιέ",            "Κράτα τα έγγραφά σου μαζί.",     ["ΝΤΟΣΙΕ", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ"]),
+    "WALLET":    ("Φάκελος Μεταφοράς", "Μετέφερε τις εργασίες σου.",     ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ", "ΦΑΚΕΛΟΙ"]),
+    "BOX":       ("Κουτί Αρχείου",     "Αποθήκευσε το αρχείο σου.",      ["ΚΟΥΤΙΑ ΑΡΧΕΙΟΥ"]),
+    "DOCHOLD":   ("Θήκη Εγγράφων",     "Τακτοποίησε το γραφείο σου.",    ["ΧΑΡΤΟΘΗΚΕΣ ΓΡΑΦΕΙΟΥ"]),
+    "MAGFILE":   ("Θήκη Περιοδικών",   "Όρθια αρχειοθέτηση.",            ["ΘΗΚΕΣ ΠΕΡΙΟΔΙΚΩΝ"]),
+    "STAPLE":    ("Συρραπτικό",        "Σύρραψε τα φύλλα σου.",          ["ΣΥΡΡΑΠΤΙΚΑ"]),
+    "CLIP":      ("Κλιπ & Συνδετήρες", "Κράτα τα χαρτιά σου μαζί.",      ["ΚΛΙΠ-ΣΥΝΔΕΤΗΡΕΣ-ΛΑΣΤΙΧΑ"]),
+    "DESKORG":   ("Οργάνωση Γραφείου", "Τακτοποίησε τον χώρο σου.",      ["ACCESSORIES ΓΡΑΦΕΙΟΥ", "ΜΟΛΥΒΟΘΗΚΕΣ", "ΚΑΛΑΘΙΑ ΑΧΡΗΣΤΩΝ", "ΣΟΥΜΕΝ -ΣΕΤ ΓΡΑΦΕΙΟΥ"]),
+}
+
+# Carousel-label → marketing copy (derived from the role catalog).
+FILING_ROLES_COPY = {label: copy for (label, copy, _hs) in FILING_ROLES.values()}
+
+# Sub-type detection: trigger Hierarchy → sub-type key.
+FILING_SUBTYPE_BY_HIER = {
+    "ΚΛΑΣΕΡ": "KLASER",
+    "ΝΤΟΣΙΕ": "NTOSIE", "ΝΤΟΣΙΕ ΣΕΜΙΝΑΡΙΩΝ - ΠΑΡΟΥΣΙΑΣΗΣ": "NTOSIE",
+    "ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ": "WALLET", "ΦΑΚΕΛΟΙ": "WALLET",
+    "ΘΗΚΕΣ-ΖΕΛΑΤΙΝΕΣ": "POCKET",
+    "ΔΙΑΧΩΡΙΣΤΙΚΑ": "DIVIDER",
+    "ΚΟΥΤΙΑ ΑΡΧΕΙΟΥ": "BOX",
+    "ΧΑΡΤΟΘΗΚΕΣ ΓΡΑΦΕΙΟΥ": "DOCHOLD",
+    "ΘΗΚΕΣ ΠΕΡΙΟΔΙΚΩΝ": "MAGFILE",
+    "ACCESSORIES ΓΡΑΦΕΙΟΥ": "DESKORG",
+}
+FILING_SUBTYPE_LABEL = {
+    "KLASER": "Κλασέρ", "NTOSIE": "Ντοσιέ", "WALLET": "Φάκελος Μεταφοράς",
+    "POCKET": "Θήκες-Ζελατίνες", "DIVIDER": "Διαχωριστικά", "BOX": "Κουτί Αρχείου",
+    "DOCHOLD": "Θήκη Εγγράφων", "MAGFILE": "Θήκη Περιοδικών", "DESKORG": "Οργάνωση Γραφείου",
+}
+
+# Per-sub-type ordered kit: list of (role_key, max_total). Complements first;
+# the trigger's own sub-type appears once, capped, lower down (a 2nd colour /
+# extra pack is fine but never the headline). Each kit is a 10-slot plan; the
+# round-robin fill loop guarantees 10 even when a small pool runs dry.
+FILING_KITS = {
+    "KLASER": [("DIVIDER",2),("POCKET",2),("PUNCH",1),("KLASER",2),("BOX",1),
+               ("STAPLE",1),("CLIP",1),("WALLET",1),("MAGFILE",1),("DESKORG",1)],
+    "NTOSIE": [("POCKET",2),("DIVIDER",2),("NTOSIE",2),("WALLET",2),("PUNCH",1),
+               ("CLIP",1),("BOX",1),("DOCHOLD",1),("STAPLE",1),("MAGFILE",1)],
+    "WALLET": [("NTOSIE",2),("WALLET",2),("POCKET",2),("DIVIDER",1),("DOCHOLD",1),
+               ("BOX",1),("KLASER",1),("CLIP",1),("MAGFILE",1),("DESKORG",1)],
+    "POCKET": [("NTOSIE",2),("KLASER",1),("DIVIDER",2),("WALLET",2),("PUNCH",1),
+               ("BOX",1),("CLIP",1),("DOCHOLD",1),("MAGFILE",1),("DESKORG",1)],
+    "DIVIDER":[("KLASER",1),("NTOSIE",2),("POCKET",2),("WALLET",2),("PUNCH",1),
+               ("BOX",1),("CLIP",1),("DOCHOLD",1),("MAGFILE",1),("DESKORG",1)],
+    "BOX":    [("KLASER",1),("WALLET",2),("NTOSIE",2),("BOX",2),("DOCHOLD",1),
+               ("MAGFILE",1),("POCKET",1),("DIVIDER",1),("DESKORG",1),("CLIP",1)],
+    "DOCHOLD":[("MAGFILE",2),("DESKORG",2),("WALLET",2),("NTOSIE",1),("DOCHOLD",1),
+               ("BOX",1),("CLIP",1),("STAPLE",1),("POCKET",1),("DIVIDER",1)],
+    "MAGFILE":[("DOCHOLD",2),("DESKORG",2),("BOX",2),("MAGFILE",2),("NTOSIE",1),
+               ("WALLET",1),("CLIP",1),("KLASER",1),("POCKET",1),("DIVIDER",1)],
+    "DESKORG":[("DOCHOLD",2),("DESKORG",3),("MAGFILE",2),("CLIP",1),("STAPLE",1),
+               ("WALLET",1),("BOX",1),("NTOSIE",1),("POCKET",1),("DIVIDER",1)],
+}
+
+# Companion universe = all role-pool hierarchies (union).
+FILING_COMPANION_HIERARCHIES = {h for _, _, hs in FILING_ROLES.values() for h in hs}
+
+# Functional scoring magnitudes (ranking WITHIN a role pool; slot order sets
+# cross-role priority, exactly like the school-bag / pencil-case engines).
+FILING_S_SIZE_MATCH = 200_000     # Α4 ↔ Α4 (both sized & equal)
+FILING_S_SIZE_NEUTRAL = 60_000    # both unsized → compatible, mild reward
+FILING_S_SIZE_CLASH = -120_000    # Α4 trigger ↔ Α5 companion (real mismatch)
+FILING_S_COMPAT = 150_000         # divider/pocket tagged "Για <this binder>"
+FILING_S_BRAND = 80_000           # same manufacturer (system coherence)
+FILING_S_COLOUR_MATCH = 40_000    # same colour family
+FILING_S_COLOUR_NEUTRAL = 16_000  # office-neutral coordinates with anything
+FILING_S_SALES_CAP = 12_000       # sales tiebreak ceiling (stays below colour)
+
+FILING_PRICE_CAP_MULT = 6.0       # companion ≤ 6× trigger …
+FILING_PRICE_FLOOR_EUR = 20.0     # … or €20, whichever is larger (punch/box ok)
+
+FILING_SIZE_TOKENS = ("Α3", "Α4", "Α5", "Α6", "Β4", "Β5")  # Greek alpha/beta
+
+
+def _fil_size(title):
+    """First paper-size token in the (NFD-stripped) title, '' if none.
+    Sizes in this catalog use Greek Α/Β, not Latin A/B."""
+    t = _scb_strip(title)
+    for s in FILING_SIZE_TOKENS:
+        if s in t:
+            return s
+    return ""
+
+
+def _fil_compat_tag(row):
+    """'Για Κλασέρ / Για Ντοσιέ' compatibility carried in Τύπος2 (dividers).
+    Returns NFD-stripped Τύπος2 text for substring tests."""
+    return _scb_strip(row.get('Τύπος2', ''))
 
 
 # ═════════════════════════════════════════════════════════════
@@ -10305,6 +10427,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 3h6v4a3 3 0 0 1-3 3 3 3 0 0 1-3-3V3z'/%3E%3Cpath d='M10 10v9a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-9'/%3E%3C/svg%3E"},
         {"key": "Pencil Cases", "label": "Κασετίνες",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='6' width='18' height='13' rx='3'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3Ccircle cx='17' cy='14' r='1'/%3E%3C/svg%3E"},
+        {"key": "Filing", "label": "Αρχειοθέτηση",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z'/%3E%3Cpath d='M3 7l2-3h6l2 3'/%3E%3Cline x1='12' y1='11' x2='12' y2='17'/%3E%3Cline x1='9' y1='14' x2='15' y2='14'/%3E%3C/svg%3E"},
         {"key": "Geometric Tools", "label": "Γεωμετρικά",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18L12 4 3 21z'/%3E%3Cline x1='8' y1='15' x2='10' y2='15'/%3E%3Cline x1='14' y1='15' x2='16' y2='15'/%3E%3C/svg%3E"},
         {"key": "Stationery Sets", "label": "Σετ\nΧαρτικών",
@@ -11703,6 +11827,30 @@ else:
                 st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Κασετίνα</p>', unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", pc_pool['Title'].dropna().unique(), label_visibility="collapsed", key="pencilcase_sel")
                 trigger = pc_pool[pc_pool['Title']==sel].iloc[0] if sel else None
+
+    elif active_cluster == "Filing":
+        # v28.63 — Είδη Αρχειοθέτησης. Dedicated functional office engine (NOT
+        # the generic stationery path). Triggers live in the Stationery sheet
+        # across the 9 filing hierarchies; dropdown groups by sub-type then sales.
+        if df_stationery.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Είδη Αρχειοθέτησης (sheet Stationery). "
+                "Ελέγξτε ότι το Parquet περιέχει το Stationery sheet."
+            )
+        else:
+            hier_clean = df_stationery['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            fil_pool = df_stationery[hier_clean.isin(FILING_TRIGGER_HIERARCHIES)].copy()
+            if fil_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Είδη Αρχειοθέτησης στο sheet Stationery.")
+            else:
+                fil_pool = fil_pool.assign(
+                    _fil_sales=pd.to_numeric(fil_pool['Sum of Sales'], errors='coerce').fillna(0.0),
+                    _fil_sub=hier_clean[hier_clean.isin(FILING_TRIGGER_HIERARCHIES)].map(
+                        lambda h: FILING_SUBTYPE_LABEL.get(FILING_SUBTYPE_BY_HIER.get(h, 'WALLET'), h))
+                ).sort_values(['_fil_sub', '_fil_sales'], ascending=[True, False])
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Είδος Αρχειοθέτησης</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", fil_pool['Title'].dropna().unique(), label_visibility="collapsed", key="filing_sel")
+                trigger = fil_pool[fil_pool['Title']==sel].iloc[0] if sel else None
 
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
@@ -21121,6 +21269,230 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_filled}/{PENCILCASE_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 FILING / ARCHIVING ENGINE — Είδη Αρχειοθέτησης (office cross-sell)
+# ═════════════════════════════════════════════════════════════
+# Functional, theme-free. Detects the trigger SUB-TYPE (Κλασέρ / Ντοσιέ /
+# Φάκελος / Ζελατίνα / Διαχωριστικά / Κουτί / Χαρτοθήκη / Θήκη Περιοδικών /
+# Οργάνωση) and builds a complementary 10-piece office kit. Ranking within a
+# role pool: size coherence (Α4) → "Για <binder>" compatibility tag → brand/
+# system coherence → colour-family → sales. Same sub-type allowed but capped &
+# after complements; the exact same SKU is never recommended back.
+FILING_SLOT_TARGET = 10
+
+
+def _fil_score_pool(sub, t_size, t_brand, t_subtype, t_color, nts):
+    """Score & sort one role pool. Returns a sorted copy with Final_Score and
+    _fil_reasons stamped on each row."""
+    if sub is None or sub.empty:
+        return sub
+    rows = []
+    for _, r in sub.iterrows():
+        title = r.get('Title', '')
+        score = 0.0
+        why = []
+        # size coherence (Α4 is the only meaningful token in this catalog)
+        c_size = _fil_size(title)
+        if t_size and c_size:
+            if c_size == t_size:
+                score += FILING_S_SIZE_MATCH; why.append(f"size✓{c_size}")
+            else:
+                score += FILING_S_SIZE_CLASH; why.append(f"size✗{c_size}≠{t_size}")
+        elif not t_size and not c_size:
+            score += FILING_S_SIZE_NEUTRAL
+        # "Για Κλασέρ / Για Ντοσιέ" compatibility tag (dividers/pockets that fit
+        # this binder's mechanism)
+        if t_subtype in ("KLASER", "NTOSIE"):
+            tag = _fil_compat_tag(r)
+            if t_subtype == "KLASER" and "ΓΙΑ ΚΛΑΣΕΡ" in tag:
+                score += FILING_S_COMPAT; why.append("fits✓Κλασέρ")
+            elif t_subtype == "NTOSIE" and "ΓΙΑ ΝΤΟΣΙΕ" in tag:
+                score += FILING_S_COMPAT; why.append("fits✓Ντοσιέ")
+        # brand / system coherence (Κατασκευαστής reliable here)
+        c_brand = _scb_brand(r)
+        if c_brand and t_brand and c_brand == t_brand:
+            score += FILING_S_BRAND; why.append(f"brand={c_brand}")
+        # colour-family coordination (office neutrals coordinate with anything)
+        c_col = _scb_color(title)
+        if c_col:
+            if t_color and c_col == t_color:
+                score += FILING_S_COLOUR_MATCH; why.append(f"colour✓{c_col}")
+            elif c_col in SCHOOLBAG_NEUTRAL_COLORS:
+                score += FILING_S_COLOUR_NEUTRAL; why.append(f"colour~{c_col}")
+        # sales tiebreak (capped below the colour tier)
+        sales = pd.to_numeric(pd.Series([r.get('Sum of Sales', 0)]),
+                              errors='coerce').fillna(0.0).iloc[0]
+        score += min(float(sales), float(FILING_S_SALES_CAP))
+        rc = r.copy()
+        rc['Final_Score'] = score
+        rc['_fil_reasons'] = ", ".join(why) if why else "—"
+        rows.append(rc)
+    out = pd.DataFrame(rows).sort_values('Final_Score', ascending=False)
+    return out
+
+
+def run_filing_engine(trigger, df_stationery, df_books=None, df_history=None):
+    """Build exactly 10 cross-sell slots for a filing trigger. Functional
+    office cross-sell (no theme). Returns (recs, diag, slot_notes, candidates)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    t_brand = _scb_brand(trigger)
+    t_price = _scb_price(trigger)
+    t_size = _fil_size(trigger.get('Title', ''))
+    t_color = _scb_color(trigger.get('Title', ''))
+    t_hier = str(trigger.get('Hierarchy', '')).strip()
+    t_subtype = FILING_SUBTYPE_BY_HIER.get(t_hier, "WALLET")
+    kit = FILING_KITS.get(t_subtype, FILING_KITS["WALLET"])
+
+    diag.append(("0. Trigger",
+                 f"{t_brand or '—'} €{t_price:.0f}",
+                 f"sub-type={t_subtype} ({FILING_SUBTYPE_LABEL.get(t_subtype,'—')}) | "
+                 f"size={t_size or '—'} | colour={t_color or '—'}"))
+
+    # ── Companion universe: filing + adjacent office-staple hierarchies ───
+    if df_stationery is None or df_stationery.empty:
+        diag.append(("ERROR", 0, "No Stationery source — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    uni = df_stationery.copy()
+    hier = uni['Hierarchy'].fillna('').astype(str).str.strip()
+    uni = uni[hier.isin(FILING_COMPANION_HIERARCHIES)].copy()
+    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    diag.append(("1. Companion universe", len(uni),
+                 "Filing + office-staple hierarchies, trigger excluded"))
+
+    # ── HARD GATES: price cap + drop zero/blank-priced placeholders ───────
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    price_cap = max(t_price * FILING_PRICE_CAP_MULT, FILING_PRICE_FLOOR_EUR)
+    kept, dropped_price, dropped_zero = [], 0, 0
+    for _, r in uni.iterrows():
+        cp = _scb_price(r)
+        if cp <= 0:
+            dropped_zero += 1
+            continue
+        if cp > price_cap:
+            dropped_price += 1
+            continue
+        kept.append(r)
+    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
+    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
+                      f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
+                      f"zero-price dropped {dropped_zero})")
+    diag.append(("2. After hard gates", len(gated),
+                 f"price>{price_cap:.0f}: {dropped_price} | zero-price: {dropped_zero}"))
+
+    if gated.empty:
+        diag.append(("ERROR", 0, "No companions survived the gates"))
+        slot_notes[0] = gate_notes
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
+
+    # ── Expand the kit into scored role pools ─────────────────────────────
+    pools = {}
+    for slot_num, (role_key, max_total) in enumerate(kit, start=1):
+        role_label, _copy, hierarchies = FILING_ROLES[role_key]
+        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) | max_total={max_total} ==="]
+        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
+        if sub.empty:
+            nts.append("  ⚠ No candidates — slot filled from backfill")
+            pools[slot_num] = (role_label, pd.DataFrame(), 1, max_total, nts)
+            continue
+        nts.append(f"  Role pool size: {len(sub)}")
+        scored = _fil_score_pool(sub, t_size, t_brand, t_subtype, t_color, nts)
+        pools[slot_num] = (role_label, scored, 1, max_total, nts)
+        diag.append((f"Pool {slot_num} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    # ── Universal backfill: the whole gated pool scored generically ───────
+    backfill = _fil_score_pool(gated.copy(), t_size, t_brand, t_subtype, t_color, None)
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used = {tm}
+    cursors = {k: 0 for k in pools}
+    taken = {k: 0 for k in pools}
+    slot_filled = 0
+    round_idx = 0
+    while slot_filled < FILING_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+            if slot_filled >= FILING_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cur = cursors[rank]
+            done = 0
+            while done < take_n and cur < len(scored) and slot_filled < FILING_SLOT_TARGET:
+                row = scored.iloc[cur]
+                cur += 1
+                if row['Material'] in used:
+                    continue
+                slot_filled += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_filled
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = FILING_ROLES_COPY.get(role_label, "Ιδανική προσθήκη στο γραφείο σου.")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_filled, []).append(
+                    f"Round {round_idx} | '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('_fil_reasons',''))} | "
+                    f"{str(row.get('Title',''))[:60]}")
+            cursors[rank] = cur
+        if not progress:
+            break
+
+    # ── Mandatory backfill: reach 10/10 from the gated floor ──────────────
+    if slot_filled < FILING_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_filled >= FILING_SLOT_TARGET:
+                break
+            if row['Material'] in used:
+                continue
+            slot_filled += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_filled
+            role_label = 'Αρχειοθέτηση'
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = "Ιδανική προσθήκη στο γραφείο σου."
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used.add(row['Material'])
+            slot_notes.setdefault(slot_filled, []).append(
+                f"BACKFILL | '{role_label}' | {str(row.get('Title',''))[:60]}")
+
+    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
+    pool_diag = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+        pool_diag.extend(nts)
+        pool_diag.append(f"  → consumed {taken[rank]} / "
+                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag.append("")
+    slot_notes[0] = pool_diag
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_filled}/{FILING_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -35867,6 +36239,16 @@ elif active_cluster == "Pencil Cases":
     recs, diag, slot_notes, full_candidates = run_pencilcases_engine(
         trigger, df_stationery, df_books, df_history)
     slot_diag = []
+elif active_cluster == "Filing":
+    # v28.63 — Είδη Αρχειοθέτησης cross-sell. Functional office engine: detects
+    # the trigger sub-type (Κλασέρ / Ντοσιέ / Φάκελος / Ζελατίνα / Διαχωριστικά
+    # / Κουτί / Χαρτοθήκη / Θήκη Περιοδικών / Οργάνωση) and builds a 10-piece
+    # complementary kit, ranking on size (Α4) → "Για <binder>" compatibility →
+    # brand/system coherence → colour → sales. Same sub-type capped, never the
+    # identical SKU.
+    recs, diag, slot_notes, full_candidates = run_filing_engine(
+        trigger, df_stationery, df_books, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -36066,6 +36448,9 @@ if not recs.empty:
         elif active_cluster == "Pencil Cases":
             # Per-role pencil-case copy (engine stamps Marketing_Copy per row).
             marketing_text = str(r.get('Marketing_Copy', PENCILCASE_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στην κασετίνα σου.")))
+        elif active_cluster == "Filing":
+            # Per-role filing copy (engine stamps Marketing_Copy per row).
+            marketing_text = str(r.get('Marketing_Copy', FILING_ROLES_COPY.get(raw_role, "Ιδανική προσθήκη στο γραφείο σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -36107,6 +36492,8 @@ if not recs.empty:
         header_text = "Έτοιμοι για το σχολείο"
     elif active_cluster == "Pencil Cases":
         header_text = "Γέμισε την κασετίνα σου"
+    elif active_cluster == "Filing":
+        header_text = "Οργάνωσε το αρχείο σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -36316,7 +36703,24 @@ with st.expander("⚙️ System Diagnostics"):
             f"€{max(t_pr_pc*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
             f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
-    st.markdown("### Engine Funnel")
+    elif active_cluster == "Filing":
+        # v28.63 — filing diagnostic surface: the functional signals the engine
+        # ranks & gates on (sub-type / size / brand / colour / price).
+        t_hier_fl = str(trigger.get('Hierarchy', '')).strip()
+        t_sub_fl = FILING_SUBTYPE_BY_HIER.get(t_hier_fl, "WALLET")
+        t_br_fl = _scb_brand(trigger) or '—'
+        t_pr_fl = _scb_price(trigger)
+        t_sz_fl = _fil_size(trigger.get('Title', '')) or '—'
+        t_col_fl = _scb_color(trigger.get('Title', '')) or '—'
+        st.markdown(
+            f"**Sub-type:** `{t_sub_fl}` ({FILING_SUBTYPE_LABEL.get(t_sub_fl,'—')}) | "
+            f"**Size:** `{t_sz_fl}` | **Colour:** `{t_col_fl}` | **Brand:** `{t_br_fl}`"
+        )
+        st.markdown(
+            f"**Price:** `€{t_pr_fl:.0f}` (companion cap "
+            f"€{max(t_pr_fl*FILING_PRICE_CAP_MULT, FILING_PRICE_FLOOR_EUR):.0f}) | "
+            f"**Hierarchy:** `{t_hier_fl}`"
+        )
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
     st.markdown("### Slot Details")
@@ -36378,6 +36782,13 @@ with st.expander("⚙️ System Diagnostics"):
     elif active_cluster == "Pencil Cases":
         # v28.62 — pencil-case attributes: licence/colour parsed from Title,
         # brand + price read directly; structured spec cols are near-empty.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Είδος','Τύπος2',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Filing":
+        # v28.63 — filing attributes: sub-type from Hierarchy, size/colour from
+        # Title, brand from Κατασκευαστής (reliable); Είδος/Τύπος2 carry sub-type
+        # & the "Για Κλασέρ/Ντοσιέ" compatibility tag.
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
