@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.63.0-2026-06-15"
+APP_BUILD = "parquet-v28.63.1-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.63.0 — Είδη Αρχειοθέτησης: ανά τύπο (Κλασέρ/Ντοσιέ/Φάκελος…) → συμπληρωματικά office· μέγεθος × συμβατότητα × brand × χρώμα.
+        🟢 Engine v28.63.1 — Είδη Αρχειοθέτησης: ανά τύπο → συμπληρωματικά office (top 20/κατηγορία)· μέγεθος × συμβατότητα × brand × χρώμα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2433,6 +2433,10 @@ FILING_ROLES = {
     "CLIP":      ("Κλιπ & Συνδετήρες", "Κράτα τα χαρτιά σου μαζί.",      ["ΚΛΙΠ-ΣΥΝΔΕΤΗΡΕΣ-ΛΑΣΤΙΧΑ"]),
     "DESKORG":   ("Οργάνωση Γραφείου", "Τακτοποίησε τον χώρο σου.",      ["ACCESSORIES ΓΡΑΦΕΙΟΥ", "ΜΟΛΥΒΟΘΗΚΕΣ", "ΚΑΛΑΘΙΑ ΑΧΡΗΣΤΩΝ", "ΣΟΥΜΕΝ -ΣΕΤ ΓΡΑΦΕΙΟΥ"]),
 }
+
+# Sidebar picker: show the top-N best-sellers PER sub-type (a curated, browsable
+# pool — every category represented by its best sellers, not all 327 SKUs).
+FILING_TEST_TOP_N = 20
 
 # Carousel-label → marketing copy (derived from the role catalog).
 FILING_ROLES_COPY = {label: copy for (label, copy, _hs) in FILING_ROLES.values()}
@@ -11846,11 +11850,29 @@ else:
                 fil_pool = fil_pool.assign(
                     _fil_sales=pd.to_numeric(fil_pool['Sum of Sales'], errors='coerce').fillna(0.0),
                     _fil_sub=hier_clean[hier_clean.isin(FILING_TRIGGER_HIERARCHIES)].map(
-                        lambda h: FILING_SUBTYPE_LABEL.get(FILING_SUBTYPE_BY_HIER.get(h, 'WALLET'), h))
-                ).sort_values(['_fil_sub', '_fil_sales'], ascending=[True, False])
-                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Είδος Αρχειοθέτησης</p>', unsafe_allow_html=True)
-                sel = st.sidebar.selectbox("", fil_pool['Title'].dropna().unique(), label_visibility="collapsed", key="filing_sel")
-                trigger = fil_pool[fil_pool['Title']==sel].iloc[0] if sel else None
+                        lambda h: FILING_SUBTYPE_LABEL.get(FILING_SUBTYPE_BY_HIER.get(h, 'WALLET'), h)),
+                )
+                # Keep the top-N best-sellers PER sub-type → a nice curated pool,
+                # ordered sub-type then sales (best sellers first).
+                fil_pool = (fil_pool.sort_values('_fil_sales', ascending=False)
+                                    .groupby('_fil_sub', group_keys=False)
+                                    .head(int(FILING_TEST_TOP_N))
+                                    .sort_values(['_fil_sub', '_fil_sales'], ascending=[True, False]))
+                # Category-labelled, de-duplicated display options → row lookup.
+                fil_pool = fil_pool.drop_duplicates(subset=['Material'])
+                _fil_opts, _fil_map = [], {}
+                for _, _r in fil_pool.iterrows():
+                    _lbl = f"{_r['_fil_sub']} · {str(_r['Title'])}"
+                    if _lbl in _fil_map:
+                        continue
+                    _fil_opts.append(_lbl)
+                    _fil_map[_lbl] = _r
+                st.sidebar.markdown(
+                    f'<p class="sidebar-section">Επιλέξτε Είδος Αρχειοθέτησης '
+                    f'<span style="opacity:.6">(top {int(FILING_TEST_TOP_N)}/κατηγορία)</span></p>',
+                    unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", _fil_opts, label_visibility="collapsed", key="filing_sel")
+                trigger = _fil_map[sel] if sel else None
 
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
