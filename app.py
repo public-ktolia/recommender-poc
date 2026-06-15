@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.13-2026-06-12"
+APP_BUILD = "parquet-v28.62.0-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.13 — Σχολικές Τσάντες: licence/theme match (+LEGO)· ουδέτερη τσάντα → σκέτα (ποινή σε μοτίβα + novelty brands τίτλος/στήλη)· dropdown = top-10 + Frozen/character test SKUs.
+        🟢 Engine v28.62.0 — Κασετίνες: γέμισε την κασετίνα (theme/licence × ηλικία × χρώμα × brand)· ποτέ 2η κασετίνα/τσάντα· dropdown top-10 + themed SKUs.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1638,6 +1638,411 @@ SCHOOLBAG_ADULT_BRANDS = {
     "SAMSONITE", "AMERICAN TOURISTER", "NATIONAL GEOGRAPHIC", "POLO",
 }
 
+# ── Bag SPEC sheet (school-bags.xlsx, 382 bags) embedded as a compact lookup.
+#    The app reads PRODUCT data from Parquet; these per-bag attributes are NOT
+#    in those sheets (they live on the product page), so they are pinned here
+#    for the TRIGGER bag only: Χρώμα → colour coordination (fills the gap when
+#    the title carries no colour word), Brand/Ήρωες → theme/licence (reinforces
+#    title parsing, which in turn routes themed bags to the kid kit via the
+#    existing kid-only-licence path). Fields: material|colour|class|brand|heroes.
+#    Regenerate this block from a fresh school-bags.xlsx if the file changes.
+_SCHOOLBAG_SPECS_RAW = """\
+461891|Με σχέδιο|Δημοτικό;Γυμνάσιο - Λύκειο||
+462103|Μαύρο|Γυμνάσιο - Λύκειο||
+591781|Με σχέδιο|Δημοτικό||
+620437|Γκρι|Γυμνάσιο - Λύκειο||
+620454|Μαύρο|Δημοτικό;Γυμνάσιο - Λύκειο||
+623482|Μαύρο;Λευκό|||
+623523|Μωβ|||
+652479|Με σχέδιο|Γυμνάσιο - Λύκειο||
+684091|Γκρι|Γυμνάσιο - Λύκειο||
+931878|Μαύρο|||
+1020695||||
+1037998|Ανθρακί|||
+1112883|Ροζ|||
+1112902|Με σχέδιο|Δημοτικό;Γυμνάσιο - Λύκειο||
+1112903|Γκρι|Γυμνάσιο - Λύκειο||
+1169479|Με σχέδιο|||
+1176066|Μπλε|Γυμνάσιο - Λύκειο||
+1176067|Γκρι|||
+1176072||Γυμνάσιο - Λύκειο||
+1176085|Ροζ|||
+1176426|Με σχέδιο|Δημοτικό||
+1176627|Ροζ|||
+1181635|Κόκκινο|||
+1237419|Ροζ|Γυμνάσιο - Λύκειο||
+1237421|Μωβ|||
+1243226|Με σχέδιο|||Cars
+1243625|Με σχέδιο|||
+1244049|Με σχέδιο|Δημοτικό|LEGO|
+1244722|Μπλε|||
+1244743|Γαλάζιο|Γυμνάσιο - Λύκειο||
+1244773|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1244906|Με σχέδιο||Santoro|Santoro Gorjuss
+1256559|Με σχέδιο|||
+1297220|Μπλε|||
+1307865|Με σχέδιο|||
+1307866|Μπλε|Γυμνάσιο - Λύκειο||
+1310940|Με σχέδιο|Δημοτικό||Trolls
+1311012|Με σχέδιο|||Cars
+1312212|Κόκκινο|||
+1312215|Κίτρινο|||
+1313017|Με σχέδιο||NBA|
+1313776|Με σχέδιο|||
+1313778|Με σχέδιο|||
+1313966|Χακί|Γυμνάσιο - Λύκειο||
+1322540|Με σχέδιο||Star Wars|Stormtroopers
+1326119|Μπλε|||
+1341387|Ασημί|||
+1348373|Μαύρο|Γυμνάσιο - Λύκειο||
+1348378||||
+1348380|Μπλε|Γυμνάσιο - Λύκειο||
+1362195|Πορτοκαλί|Γυμνάσιο - Λύκειο||
+1384509|Με σχέδιο|||
+1384510|Με σχέδιο|||
+1389781|Ροζ|Δημοτικό||
+1389849|Με σχέδιο|||
+1389853|Με σχέδιο|||
+1389854|Με σχέδιο|||
+1389855|Με σχέδιο|||
+1399320|Μαύρο||Paul Frank|Paul Frank
+1399422|Μπλε|Παιδικός Σταθμός - Νηπιαγωγείο||
+1399427|Μαύρο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1399459|Μαύρο;Με σχέδιο||UglyDolls|Moxy
+1399461|Με σχέδιο||UglyDolls|Ugly Dog;Moxy;Ox
+1402116|Με σχέδιο|||
+1402121|Με σχέδιο|||
+1402264|Μαύρο;Με σχέδιο|||
+1405320|Με σχέδιο||Santoro|Santoro Gorjuss
+1405322|Με σχέδιο|||Gorjuss
+1405362|Με σχέδιο|Δημοτικό|Kimmidoll|Kimmidoll
+1405393|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Hello Kitty|Hello Kitty
+1405443|Με σχέδιο||Fashion Friends|Maggie & Bianca
+1405444|Με σχέδιο||Fashion Friends|Maggie & Bianca
+1405458|Με σχέδιο||Disney;Disney Princess|Rapunzel;Belle;Aurora
+1405492|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|
+1405503|Με σχέδιο|||
+1407431|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|LEGO|
+1413849|Με σχέδιο|Δημοτικό;Γυμνάσιο - Λύκειο||
+1413850|Μπλε|Δημοτικό;Γυμνάσιο - Λύκειο||
+1414064|Μαύρο;Με σχέδιο|||
+1417157|Γκρι|||
+1427278|Μπλε|Γυμνάσιο - Λύκειο||
+1427280|Μαύρο|Γυμνάσιο - Λύκειο||
+1451820|Μπορντό|Γυμνάσιο - Λύκειο||
+1451828|Χακί|Γυμνάσιο - Λύκειο||
+1508477|Με σχέδιο||Santoro|Santoro Gorjuss
+1508478|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|
+1508563|Με σχέδιο||Kimmidoll|Kimmidoll
+1508564|Κόκκινο;Με σχέδιο||Kimmidoll|Kimmidoll
+1508565|Με σχέδιο;Τυρκουάζ|Παιδικός Σταθμός - Νηπιαγωγείο|Kimmidoll|Kimmidoll
+1508566|Κόκκινο;Με σχέδιο||Kimmidoll|Kimmidoll
+1508634|Με σχέδιο||Justice League|Batman
+1509143|Μαύρο|||
+1509144||||
+1509150|Μαύρο|||
+1509159|Μαύρο|||
+1509167|Ροζ|||
+1509168|Ασημί|Γυμνάσιο - Λύκειο||
+1509169|Χρυσό|||
+1509170|Ροζ|Γυμνάσιο - Λύκειο||
+1509173|Κόκκινο|||
+1509435|Με σχέδιο|||
+1509469|Πράσινο|||
+1509537|Με σχέδιο||Anekke|Anekke
+1509545|Μαύρο|Δημοτικό||
+1509549|Μωβ|||
+1509639|Με σχέδιο|||
+1509643|Ροζ|Παιδικός Σταθμός - Νηπιαγωγείο||
+1509644|Με σχέδιο|||
+1511874|Με σχέδιο|||
+1512008|Με σχέδιο|||
+1512014|Με σχέδιο|||
+1512023|Με σχέδιο|||
+1512044|Με σχέδιο||Santoro|Santoro Gorjuss
+1514924|Με σχέδιο||Frozen;Disney;Disney Princess|Elsa;Anna
+1514928|Με σχέδιο|Δημοτικό|Pj Masks|
+1517322|Ροζ;Με σχέδιο|||
+1518095|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Power Rangers|
+1518096|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Power Rangers|
+1518097|Με σχέδιο|Δημοτικό|Power Rangers|
+1518125|Με σχέδιο||Gormiti|
+1518132|Με σχέδιο||Nerf|
+1518140|Μαύρο;Με σχέδιο||Nerf|
+1518223|Λιλά||Frozen;Disney;Disney Princess|Anna
+1518270|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Barbie|Barbie
+1518493|Με σχέδιο||Miracle Tunes|Miracle Tunes
+1532163|Με σχέδιο|||
+1532998|Με σχέδιο|||
+1533002|Με σχέδιο|||
+1534140|Με σχέδιο|Δημοτικό||
+1534156|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1594534|Λευκό;Με σχέδιο|Δημοτικό||
+1594575|Λευκό|||
+1594580|Με σχέδιο|||
+1594581|Με σχέδιο|Δημοτικό||
+1595253|Γκρι|||
+1602885|Με σχέδιο|Δημοτικό|Pj Masks|
+1603399|Με σχέδιο|||
+1603401|Με σχέδιο|Δημοτικό||
+1603405|Με σχέδιο|Δημοτικό||
+1603414|Ροζ|Δημοτικό||
+1603415|Ασημί|Δημοτικό||
+1603432|Πράσινο|Γυμνάσιο - Λύκειο||
+1603433|Πορτοκαλί|Γυμνάσιο - Λύκειο||
+1603434|Μπλε|Γυμνάσιο - Λύκειο||
+1603437|Ροζ|Γυμνάσιο - Λύκειο||
+1603438|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1603439|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1603440|Με σχέδιο|||
+1610152|Με σχέδιο|Δημοτικό||
+1618907|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1618908|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1618909|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1618911|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1618913|Με σχέδιο||Santoro|Santoro Gorjuss
+1618917|Με σχέδιο||Santoro|Santoro Gorjuss
+1618966|Μωβ|Παιδικός Σταθμός - Νηπιαγωγείο|Harry Potter|Harry Potter
+1618967|Γκρι||Harry Potter|Harry Potter
+1618968|Μωβ|Παιδικός Σταθμός - Νηπιαγωγείο|Harry Potter|Harry Potter
+1618986|Με σχέδιο|Γυμνάσιο - Λύκειο|Harry Potter|Harry Potter
+1618987|Μαύρο|Γυμνάσιο - Λύκειο|Harry Potter|Harry Potter
+1618989|Με σχέδιο||Harry Potter|Harry Potter
+1618990|Μαύρο|Δημοτικό|Harry Potter|Harry Potter
+1619019|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|Wonder Woman
+1619020|Με σχέδιο||Harry Potter|Harry Potter
+1619021|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Harry Potter|Hermione
+1621884|Με σχέδιο|Δημοτικό||
+1621888|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1621889|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1622680|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Η Κυρία Γελαστούλα
+1622697|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Μικροί Κύριοι - Μικρές Κυρίες
+1622699|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Μικροί Κύριοι - Μικρές Κυρίες
+1622700|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Μικροί Κύριοι - Μικρές Κυρίες
+1622804|Κόκκινο;Με σχέδιο|Δημοτικό||
+1622805|Κόκκινο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1622810|Με σχέδιο|||
+1622813|Ροζ|Παιδικός Σταθμός - Νηπιαγωγείο||
+1622819|Με σχέδιο|Δημοτικό||
+1622836|Με σχέδιο||NBA|
+1622845|Πράσινο|Δημοτικό|NBA|
+1622849|Με σχέδιο|||
+1622850|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1622851|Με σχέδιο|Δημοτικό||
+1622854|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1622861|Με σχέδιο|||
+1622877|Με σχέδιο|Δημοτικό|Paul Frank|Paul Frank
+1622878|Με σχέδιο|Δημοτικό|Paul Frank|Paul Frank
+1622879|Με σχέδιο||Paul Frank|Paul Frank
+1622881|Ροζ|Δημοτικό|Paul Frank|Paul Frank
+1622882|Ροζ|Δημοτικό||
+1622890|Λευκό|Παιδικός Σταθμός - Νηπιαγωγείο|Anekke|Anekke
+1622894|Με σχέδιο|Δημοτικό||
+1622900|Πράσινο|Δημοτικό||
+1623022|Λευκό|Δημοτικό||
+1623058|Με σχέδιο|Δημοτικό||
+1623064|Με σχέδιο|||
+1623075|Με σχέδιο|Δημοτικό||
+1623078|Με σχέδιο|Δημοτικό||
+1623081|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1623157|Με σχέδιο|Δημοτικό|Bakugan|Bakugan
+1623158|Με σχέδιο||Bakugan|Bakugan
+1623159|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Bakugan|Bakugan
+1623160|Με σχέδιο|Δημοτικό|Bakugan|Bakugan
+1623166|Με σχέδιο|Δημοτικό||
+1623167|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Gormiti|
+1623168|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Gormiti|
+1623174|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Hello Kitty|Hello Kitty
+1623182|Με σχέδιο|Δημοτικό|Nerf|
+1623185|Με σχέδιο||Nerf|
+1623187|Με σχέδιο|Δημοτικό|Nerf|
+1623192|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Spongebob|Spongebob Squarepants
+1623212|Με σχέδιο|Δημοτικό|Disney|Minnie
+1623238|Με σχέδιο||Disney|Marie
+1623256|Με σχέδιο|Δημοτικό|Frozen;Disney;Disney Princess|Elsa
+1623257|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Frozen;Disney;Disney Princess|Elsa
+1623267|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1623268|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1623271|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1623272|Λευκό;Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1623273|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Disney|Smurfs
+1623274|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Disney|Smurfs
+1623277|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Disney|Smurfs
+1623285|Πράσινο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1623311|Με σχέδιο|Δημοτικό|Barbie|Barbie
+1623312|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Barbie|Barbie
+1631657|Με σχέδιο|||
+1631659|Ροζ|Γυμνάσιο - Λύκειο||
+1631674|Με σχέδιο|||
+1631677|Με σχέδιο|||
+1673110|Καφέ|Παιδικός Σταθμός - Νηπιαγωγείο||
+1674225|Με σχέδιο|Δημοτικό||
+1674226|Με σχέδιο|Δημοτικό||
+1674232|Με σχέδιο|Δημοτικό||
+1674233|Με σχέδιο|Δημοτικό||
+1674239|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1674240|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1674245|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1674246|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1674337|Μπλε|Γυμνάσιο - Λύκειο||
+1674338|Γκρι|Γυμνάσιο - Λύκειο||
+1674339|Πράσινο|Γυμνάσιο - Λύκειο||
+1674340|Μωβ|Γυμνάσιο - Λύκειο||
+1674341|Ροζ|Γυμνάσιο - Λύκειο||
+1674342|Μαύρο|Γυμνάσιο - Λύκειο||
+1674343|Μπλε|Γυμνάσιο - Λύκειο||
+1674344|Μωβ|Γυμνάσιο - Λύκειο||
+1685457|Κίτρινο|||
+1685458|Μπλε|||
+1685467|Κίτρινο|Γυμνάσιο - Λύκειο||
+1685470|Ροζ|Γυμνάσιο - Λύκειο||
+1685471|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1685480|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1685487|Πράσινο|Γυμνάσιο - Λύκειο||
+1685499|Γκρι|Γυμνάσιο - Λύκειο||
+1692642|Με σχέδιο|||
+1692664|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1692666|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1694940|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Lloyd
+1694942|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Kai
+1694948|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Lloyd
+1694949|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Zane;Kai;Lloyd;Cole;Jay
+1694951|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Kai
+1694957|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Lloyd
+1694959|Με σχέδιο|Δημοτικό|LEGO;Ninjago|Kai
+1694987|Κίτρινο|Γυμνάσιο - Λύκειο||
+1694992|Μπλε|Γυμνάσιο - Λύκειο||
+1696361|Κόκκινο|||
+1696363|Γκρι|Γυμνάσιο - Λύκειο||
+1696368|Μπλε|Γυμνάσιο - Λύκειο||
+1696857|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1696858|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1696860|Ροζ|Δημοτικό||
+1698685|Με σχέδιο|Δημοτικό||
+1698698|Με σχέδιο|Δημοτικό||
+1698700|Με σχέδιο|Δημοτικό||
+1698719|Με σχέδιο|||
+1698725|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1698731|Με σχέδιο|Δημοτικό||
+1698738|Με σχέδιο|||
+1698739|Με σχέδιο|Δημοτικό||
+1698850|Πράσινο|Γυμνάσιο - Λύκειο||
+1698851|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1698854|Με σχέδιο|||
+1698856|Με σχέδιο|Δημοτικό||
+1698860|Με σχέδιο|||
+1701232|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||Superman
+1701233|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|Flash
+1701234|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Harry Potter|Harry Potter
+1701236|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||Harry Potter
+1701237|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|Batman
+1701238|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|Superman
+1701239|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1701240|Πράσινο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1701241|Φούξια||Santoro|Santoro Gorjuss
+1701242|Λιλά|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1701257|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Harry Potter|Harry Potter
+1701260|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Justice League|Superman
+1701261|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Fast & Furious|
+1701262|Πράσινο|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|Santoro Gorjuss
+1701264|Λιλά|Παιδικός Σταθμός - Νηπιαγωγείο|Santoro|
+1701267|Μπλε|Γυμνάσιο - Λύκειο||
+1701268|Κοραλί|||
+1701269|Με σχέδιο|Δημοτικό;Γυμνάσιο - Λύκειο||
+1701270|Με σχέδιο||Harry Potter|Harry Potter
+1701273|Με σχέδιο|Δημοτικό|Justice League|Batman
+1701274|Με σχέδιο|Δημοτικό|Justice League|Superman
+1701276|Με σχέδιο|Δημοτικό|Fast & Furious|
+1701277|Πράσινο;Με σχέδιο|Δημοτικό|Santoro|Santoro Gorjuss
+1701278|Φούξια|Δημοτικό|Santoro|Santoro Gorjuss
+1701279|Λιλά;Με σχέδιο|Δημοτικό|Santoro|Santoro Gorjuss
+1701281|Με σχέδιο|Δημοτικό||Harry Potter
+1701284|Με σχέδιο|Δημοτικό|Justice League|Superman
+1701285|Με σχέδιο|Δημοτικό|Fast & Furious|
+1701286|Πράσινο|Δημοτικό|Santoro|
+1701287|Φούξια|Δημοτικό|Santoro|Santoro Gorjuss
+1701288|Λιλά|Δημοτικό||
+1701603|Με σχέδιο|||
+1701604|Με σχέδιο|Δημοτικό||NBA
+1701971|Με σχέδιο|Δημοτικό|Disney|Mickey
+1701975|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||Minnie Mouse
+1701980|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1701983|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Pj Masks|
+1708271|Με σχέδιο|Δημοτικό|Paw Patrol|Paw Patrol
+1708295|Με σχέδιο|||Hello Kitty
+1708309|Με σχέδιο|Δημοτικό|Avengers|Spiderman
+1708321|Με σχέδιο|Δημοτικό|Disney|Minnie Mouse
+1708328|Με σχέδιο|Δημοτικό|Disney|Minnie Mouse
+1708343|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Disney|Dalmatians
+1708346|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Disney|Dumbo
+1708347|Με σχέδιο|Δημοτικό|Disney|Dumbo
+1708357|Με σχέδιο|Δημοτικό|Cars|Lightning McQueen
+1708364|Με σχέδιο|Δημοτικό|Frozen;Disney;Disney Princess|Elsa;Anna
+1708371|Με σχέδιο|Δημοτικό|League Of Legends|Ekko
+1708372|Με σχέδιο|Δημοτικό|League Of Legends|Ekko
+1708374|Με σχέδιο|Γυμνάσιο - Λύκειο|League Of Legends|Ekko
+1708376|Με σχέδιο|Δημοτικό|League Of Legends|Hextech
+1708380|Με σχέδιο|Δημοτικό|League Of Legends|Yasuo
+1708381|Με σχέδιο|Δημοτικό|League Of Legends|Yasuo
+1708393|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Fisher Price|
+1708394|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1708398|Με σχέδιο|Προνήπια 1;Προνήπια 2;Νηπιαγωγείο|Fisher Price|
+1708399|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Fisher Price|
+1708401|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Hot Wheels|
+1708402|Με σχέδιο|Δημοτικό|Hot Wheels|Hot Wheels
+1708412|Με σχέδιο|Δημοτικό|Barbie|Barbie
+1708421|Με σχέδιο|Δημοτικό|Barbie|Barbie
+1708430|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1708431|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1708717|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Μικροί Κύριοι - Μικρές Κυρίες
+1708719|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Η Κυρία Προγκίπισσα
+1708720|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Η Κυρία Αγκαλίτσα
+1708721|Με σχέδιο||Μικροί Κύριοι - Μικρές Κυρίες|Ο Κύριος Δυνατός
+1708722|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Ο Κύριος Χαρούμενος
+1708723|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Η Κυρία Αγκαλίτσα
+1708724|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Μικροί Κύριοι - Μικρές Κυρίες|Η Κυρία Αγκαλίτσα
+1709579|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1709580|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1709588|Με σχέδιο|||
+1709589|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1709592|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1709593|Με σχέδιο|||
+1709596|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1709600|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο|Forever Friends|
+1709614|Χακί;Με σχέδιο|Δημοτικό||
+1709623|Με σχέδιο|||
+1709627|Με σχέδιο|||
+1709786|Ροζ|||
+1709787|Μπλε|||
+1709788|Πράσινο|||
+1709821|Ροζ|||
+1710637|Με σχέδιο|Παιδικός Σταθμός - Νηπιαγωγείο||
+1710654|Μαύρο|||
+1711401|Ροζ|Γυμνάσιο - Λύκειο||
+1711403|Γαλάζιο|Γυμνάσιο - Λύκειο||
+1711404|Με σχέδιο|Γυμνάσιο - Λύκειο||
+1711409|Πράσινο|Γυμνάσιο - Λύκειο||
+1711410|Μωβ|Γυμνάσιο - Λύκειο||
+1715108|Μπλε|Παιδικός Σταθμός - Νηπιαγωγείο||
+1717930|Χρυσό|Δημοτικό;Γυμνάσιο - Λύκειο||
+1717931|Ροζ|Γυμνάσιο - Λύκειο||
+1717932|Ασημί|Δημοτικό;Γυμνάσιο - Λύκειο||
+1717933|Μπεζ|Δημοτικό;Γυμνάσιο - Λύκειο||
+1717934|Χακί|||
+"""
+
+def _scb_build_specs(raw):
+    d = {}
+    for ln in raw.splitlines():
+        if not ln.strip():
+            continue
+        parts = (ln.split('|') + ['', '', '', ''])[:5]
+        mat, col, kls, brand, heroes = [p.strip() for p in parts]
+        d[mat] = {'color': col, 'klass': kls, 'brand': brand, 'heroes': heroes}
+    return d
+
+SCHOOLBAG_SPECS = _scb_build_specs(_SCHOOLBAG_SPECS_RAW)
+
 # Scoring constants (kept on the same 100k scale as the other engines so the
 # layers stack predictably: licence ≫ age ≫ brand ≫ price/sales tiebreak).
 SCHOOLBAG_S_LICENCE_MATCH = 300_000   # companion shares the bag's character
@@ -1704,6 +2109,160 @@ SCHOOLBAG_S_COLOR_MATCH      =  70_000   # companion shares the bag's colour fam
 SCHOOLBAG_S_COLOR_NEUTRAL    =  35_000   # companion is a neutral → coordinates always
 SCHOOLBAG_S_COLOR_CLASH      = -45_000   # bright clash on an OLDER/lifestyle bag
 SCHOOLBAG_S_COLOR_CLASH_KIDS = -15_000   # gentler clash for the (bright) kids catalogue
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 PENCIL CASES CONFIGURATION (Κασετίνες — "γέμισε την κασετίνα")
+# ═════════════════════════════════════════════════════════════
+# Trigger source: Stationery sheet, Level 2 = 'Bags',
+# Hierarchy = 'ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ' (736 SKUs). SIBLING of the School-Bags
+# engine — same data profile, same HYBRID title-parse approach — but the
+# carousel here completes what goes *inside* the case (the writing kit),
+# and NEVER recommends a 2nd pencil case / pencil holder / school bag.
+#
+# DATA AUDIT (why HYBRID, title-parse-driven — identical to school bags):
+#   • Structured spec cols (Είδος 2.7 %, Τύπος2 0.1 %, the pen specs 0 %) are
+#     useless; there is no separate pencil-case spec sheet.
+#   • Sum of Sales covers only ~43 % and is € of mixed magnitude → tiebreak.
+#   • The REAL signal is the Title + LIST PRICE + Κατασκευαστής (98.9 % filled):
+#       – character/licence  (Frozen, Barbie, Spiderman, Pokemon, Stitch,
+#                             Minecraft, Gabby, Naruto, Unicorn, Hello Kitty…)
+#       – shape / fill word  (Τριγωνική / Οβάλ / Διπλή / Γεμάτη)
+#       – brand              (CITY, GIM, MUST, Legami, Maped, Coolpack…)
+#       – price              (€2–30, q25–q75 €8–14, median €10)
+#   • NOTE: pencil-case titles carry NO age word (Νηπίου/Δημοτικ/Γυμνασ = 0),
+#     so age routing falls on the licence path: a kid-only licence (Frozen…)
+#     → PRIMARY kit; everything else → the neutral TEEN_ADULT study kit.
+#
+# RECOMMENDATION DEPTH — HYBRID, reuses the School-Bags scorer & vocab
+# (_scb_licence / _scb_color / _scb_brand / _scb_age_persona /
+#  _scb_score_companion + SCHOOLBAG_LICENCES / _COLORS / _KID_ONLY / _ADULT):
+#   1. CHARACTER/LICENCE MATCH — dominant boost (Frozen case → Frozen pencils).
+#   2. AGE-BAND COHERENCE — routes the kit (kids colour-led vs older study-led)
+#      and hard-blocks toddler-only characters on a neutral/older case.
+#   3. PRICE SANITY — a companion is never (much) dearer than the case.
+#   4. BRAND ecosystem + SALES tiebreaker.
+
+PENCILCASE_L2 = "Bags"
+PENCILCASE_TRIGGER_HIERARCHY = "ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ"
+PENCILCASE_SLOT_TARGET = 10
+
+# 🧪 Themed test cases — pinned into the dropdown ALONGSIDE the top-N
+#    best-sellers (union), so personas (neutral/Legami, kid licence, teen
+#    licence) can be eyeballed quickly. One representative SKU per theme.
+PENCILCASE_TEST_SKUS = {
+    "2109506",  # LEGAMI Kawaii Ladybug (top seller)     → neutral/lifestyle
+    "2025239",  # LEGAMI Panda
+    "2109519",  # LEGAMI Unicorn mini
+    "1821433",  # FROZEN  (Disney Frozen 2)              → kid kit
+    "1949322",  # BARBIE  (Maped XXL Fancy Barbie)
+    "1953754",  # GABBY   (Gabby's Dollhouse)
+    "2030224",  # STITCH  (Coolpack Disney Stitch)
+    "2042889",  # SPIDERMAN (Gim Spiderman City)         → teen licence
+    "1826566",  # POKEMON (Graffiti Pokemon)
+    "2043948",  # MINECRAFT (Graffiti Minecraft, full)
+    "1823213",  # NARUTO  (Gim Naruto Letters)
+}
+# Limit the dropdown to the top-N best-selling cases (by Sum of Sales). The
+# SKUs above are ADDED on top (union). Set both to None/0 to show all 736.
+PENCILCASE_TEST_TOP_N = 10
+
+# ── Companion hierarchies = the CONTENTS of a pencil case. Every value exists
+#    in the Stationery sheet (+ Books for character depth). DELIBERATELY
+#    ABSENT: ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ / ΣΧΟΛΙΚΕΣ ΚΑΣΕΤΙΝΕΣ / ΜΟΛΥΒΟΘΗΚΕΣ (never a 2nd
+#    case or holder — printer-cartridge rule) and ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ (never a bag).
+#    Also absent: bottles / lunch boxes (those belong to the BAG kit, not
+#    inside a pencil case).
+PENCILCASE_COMPANION_HIERARCHIES = {
+    # writing core
+    "ΜΟΛΥΒΙΑ", "ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ",
+    "ΓΟΜΕΣ", "ΞΥΣΤΡΕΣ", "ΔΙΟΡΘΩΤΙΚΑ",
+    # colour & art (kids)
+    "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ", "ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ",
+    "ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ",
+    "ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ", "ΜΠΛΟΚ-ΧΑΡΤΙΑ", "ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS",
+    # study & organise (teen / adult)
+    "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ",
+    "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ", "ΤΕΤΡΑΔΙΑ",
+    # craft
+    "ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ",
+}
+
+# ── AGE-BASED slot lists (same three personas as school bags). Tuple is
+#    (slot, role_label, role_key, [hierarchies], max_round_1, max_total).
+#    Slot order follows companion sales rank within each band.
+
+# NURSERY — colour / craft led, NO pens / highlighters / geometry / correction.
+PENCILCASE_NURSERY_SLOTS = [
+    (1,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ"],                     1, 2),
+    (2,  'Μαρκαδόροι Ζωγρ.', 'DRAWMARK', ["ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ", "ΜΑΡΚΑΔΟΡΟΙ"],     1, 1),
+    (3,  'Κηρομπογιές',      'CRAYON',   ["ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ"],                                    1, 1),
+    (4,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 1),
+    (5,  'Γόμα',             'ERASER',   ["ΓΟΜΕΣ"],                                                 1, 1),
+    (6,  'Ξύστρα',           'SHARP',    ["ΞΥΣΤΡΕΣ"],                                               1, 1),
+    (7,  'Χρώματα',          'PAINT',    ["ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"],                                    1, 1),
+    (8,  'Μπλοκ Ζωγραφικής', 'PAD',      ["ΜΠΛΟΚ-ΧΑΡΤΙΑ"],                                          1, 1),
+    (9,  'Αυτοκόλλητα',      'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                  1, 1),
+    (10, 'Κόλλα / Ψαλίδι',   'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ"],                                     1, 1),
+]
+
+# PRIMARY — the classic Δημοτικό fill, sales-ordered (pencils #1, colours #2…).
+PENCILCASE_PRIMARY_SLOTS = [
+    (1,  'Μολύβια',          'PENCIL',   ["ΜΟΛΥΒΙΑ"],                                               1, 2),
+    (2,  'Ξυλομπογιές',      'COLOR',    ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ", "ΞΥΛΟΜΠΟΓΙΕΣ"],                     1, 1),
+    (3,  'Γόμα',             'ERASER',   ["ΓΟΜΕΣ"],                                                 1, 1),
+    (4,  'Ξύστρα',           'SHARP',    ["ΞΥΣΤΡΕΣ"],                                               1, 1),
+    (5,  'Στυλό',            'PEN',      ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ GEL"],                          1, 1),
+    (6,  'Μαρκαδόροι',       'MARKER',   ["ΜΑΡΚΑΔΟΡΟΙ", "ΜΑΡΚΑΔΟΡΟΙ ΣΧΕΔΙΟΥ-ΕΙΔΙΚΩΝ ΧΡΗΣΕΩΝ"],     1, 1),
+    (7,  'Τετράδια',         'NOTEBOOK', ["ΤΕΤΡΑΔΙΑ"],                                              1, 1),
+    (8,  'Γεωμετρικά',       'GEOMETRY', ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ"],                 1, 1),
+    (9,  'Κόλλα / Ψαλίδι',   'CRAFT',    ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ"],                                     1, 1),
+    (10, 'Αυτοκόλλητα',      'STICKER',  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                  1, 1),
+]
+
+# TEEN/ADULT — Γυμνάσιο-Λύκειο / neutral (Legami, plain) study staples,
+# sales-ordered (gel pens, pencils, highlighters, geometry top sellers).
+PENCILCASE_TEEN_SLOTS = [
+    (1,  'Στυλό Gel',        'PEN_GEL',   ["ΣΤΥΛΟ GEL"],                                            1, 2),
+    (2,  'Μολύβια',          'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                              1, 1),
+    (3,  'Μαρκαδόροι Υπογρ.', 'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                             1, 1),
+    (4,  'Γόμα',             'ERASER',    ["ΓΟΜΕΣ"],                                                1, 1),
+    (5,  'Ξύστρα',           'SHARP',     ["ΞΥΣΤΡΕΣ"],                                              1, 1),
+    (6,  'Στυλό Διαρκείας',  'PEN',       ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],               1, 1),
+    (7,  'Γεωμετρικά',       'GEOMETRY',  ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ"],                1, 1),
+    (8,  'Διορθωτικά',       'CORRECTION',["ΔΙΟΡΘΩΤΙΚΑ"],                                           1, 1),
+    (9,  'Τετράδια',         'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ"],                                             1, 1),
+    (10, 'Σημειώσεις',       'STUDY',     ["POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],    1, 1),
+]
+
+PENCILCASE_SLOTS_BY_PERSONA = {
+    'NURSERY':    PENCILCASE_NURSERY_SLOTS,
+    'PRIMARY':    PENCILCASE_PRIMARY_SLOTS,
+    'TEEN_ADULT': PENCILCASE_TEEN_SLOTS,
+}
+
+PENCILCASE_MARKETING_COPY = {
+    'Μολύβια':           "Γέμισε την κασετίνα σου.",
+    'Ξυλομπογιές':       "Χρώμα & δημιουργικότητα.",
+    'Μαρκαδόροι Ζωγρ.':  "Ζωντάνεψε τις ζωγραφιές σου.",
+    'Κηρομπογιές':       "Απαλό χρώμα για μικρά χέρια.",
+    'Γόμα':              "Καθαρές διορθώσεις.",
+    'Ξύστρα':            "Πάντα κοφτερή μύτη.",
+    'Χρώματα':           "Ώρα για δημιουργία.",
+    'Μπλοκ Ζωγραφικής':  "Λευκές σελίδες για ιδέες.",
+    'Αυτοκόλλητα':       "Διακόσμησε τα πράγματά σου.",
+    'Κόλλα / Ψαλίδι':    "Για κάθε χειροτεχνία.",
+    'Στυλό':             "Γράψε με άνεση.",
+    'Στυλό Gel':         "Απαλό, καθαρό γράψιμο.",
+    'Στυλό Διαρκείας':   "Αξιόπιστο σε κάθε σημείωση.",
+    'Μαρκαδόροι':        "Χρώμα σε κάθε σχέδιο.",
+    'Μαρκαδόροι Υπογρ.': "Τόνισε ό,τι μετράει.",
+    'Τετράδια':          "Έτοιμα για τη νέα χρονιά.",
+    'Γεωμετρικά':        "Ακρίβεια στα μαθηματικά.",
+    'Διορθωτικά':        "Διόρθωσε στη στιγμή.",
+    'Σημειώσεις':        "Οργάνωσε & σημείωσε.",
+    'Σχολικά Είδη':      "Ιδανική προσθήκη στην κασετίνα σου.",
+}
 
 
 # ═════════════════════════════════════════════════════════════
@@ -10979,6 +11538,43 @@ else:
                 sel = st.sidebar.selectbox("", periph['Title'].unique(), label_visibility="collapsed", key=f"periph_{active_cluster}_sel")
                 trigger = periph[periph['Title']==sel].iloc[0] if sel else None
 
+    elif active_cluster == "Pencil Cases":
+        # v28.62 — Κασετίνες. Dedicated theme-aware engine (NOT the generic
+        # stationery slot path). Triggers live in the Stationery sheet,
+        # Hierarchy = 'ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ'. Dropdown = top-N best-sellers ∪
+        # themed test SKUs (mirrors the School-Bags picker).
+        if df_stationery.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Κασετίνες (sheet Stationery/Bags). "
+                "Ελέγξτε ότι το Parquet περιέχει το Stationery sheet."
+            )
+        else:
+            hier_clean = df_stationery['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            pc_pool = df_stationery[hier_clean == PENCILCASE_TRIGGER_HIERARCHY].copy()
+
+            if not pc_pool.empty and (PENCILCASE_TEST_TOP_N or PENCILCASE_TEST_SKUS):
+                pc_pool = pc_pool.assign(
+                    _pc_sales=pd.to_numeric(pc_pool['Sum of Sales'], errors='coerce').fillna(0.0)
+                )
+                _mat = (pc_pool['Material'].astype(str).str.strip()
+                        .str.replace(r'\.0$', '', regex=True))
+                _parts = []
+                if PENCILCASE_TEST_TOP_N:
+                    _parts.append(pc_pool.sort_values('_pc_sales', ascending=False)
+                                  .head(int(PENCILCASE_TEST_TOP_N)))
+                if PENCILCASE_TEST_SKUS:
+                    _parts.append(pc_pool[_mat.isin(PENCILCASE_TEST_SKUS)])
+                pc_pool = (pd.concat(_parts)
+                           .drop_duplicates(subset=['Material'])
+                           .sort_values('_pc_sales', ascending=False))
+
+            if pc_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Κασετίνες στο sheet Stationery (Bags).")
+            else:
+                st.sidebar.markdown('<p class="sidebar-section">Επιλέξτε Κασετίνα</p>', unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", pc_pool['Title'].dropna().unique(), label_visibility="collapsed", key="pencilcase_sel")
+                trigger = pc_pool[pc_pool['Title']==sel].iloc[0] if sel else None
+
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
             st.sidebar.warning("Sheet 'Stationery' is empty or missing.")
@@ -19954,18 +20550,36 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
     all_recs = []
 
     tm = trigger['Material']
+    try:
+        _spec_key = str(int(float(tm)))
+    except (ValueError, TypeError):
+        _spec_key = str(tm).strip()
+    spec = SCHOOLBAG_SPECS.get(_spec_key)
     t_brand = _scb_brand(trigger)
     t_price = _scb_price(trigger)
+    # Licence: title first, then the spec Brand / Ήρωες (catches generic titles
+    # — a Frozen/NBA/LEGO bag still routes to its themed kit via this).
     t_licence = _scb_licence(trigger.get('Title', ''))
+    if not t_licence and spec:
+        t_licence = _scb_licence(spec['brand']) or _scb_licence(spec['heroes'])
+    # Colour: title first, then the spec Χρώμα (fills 'Clay'/'Lego'/'Herschel'
+    # style titles that carry no colour word). 'Με σχέδιο'→no family→skipped.
     t_color = _scb_color(trigger.get('Title', ''))
+    _color_src = 'title' if t_color else '—'
+    if not t_color and spec and spec['color']:
+        t_color = _scb_color(spec['color'])
+        if t_color:
+            _color_src = 'spec'
     persona, band = _scb_age_persona(trigger, t_licence)
     is_older = (persona == 'TEEN_ADULT')
     slot_list = SCHOOLBAG_SLOTS_BY_PERSONA.get(persona, SCHOOLBAG_PRIMARY_SLOTS)
 
     diag.append(("0. Trigger",
                  f"{t_brand or '—'} €{t_price:.0f}",
-                 f"licence={t_licence or '—'} | colour={t_color or '—'} | "
-                 f"persona={persona} ({band})"))
+                 f"licence={t_licence or '—'} | colour={t_color or '—'}"
+                 f"{' [spec]' if _color_src == 'spec' else ''} | "
+                 f"persona={persona} ({band})"
+                 f"{' | spec✓' if spec else ''}"))
 
     # ── Build the companion universe (Stationery + Books for character
     #    depth), deduped, trigger & all backpacks excluded. ────────────────
@@ -20113,6 +20727,197 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_filled}/{SCHOOLBAG_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 PENCIL CASES ENGINE — Κασετίνες (cross-sell: γέμισε την κασετίνα)
+# ═════════════════════════════════════════════════════════════
+# SIBLING of run_schoolbags_engine: reuses every School-Bags helper
+# (_scb_licence / _scb_color / _scb_brand / _scb_age_persona /
+#  _scb_score_companion) and the SCHOOLBAG_LICENCES / _COLORS / _KID_ONLY /
+#  _ADULT vocab — a Frozen case and a Frozen bag share the same theme world.
+# Differences from school bags:
+#   • Trigger hierarchy is ΚΑΣΕΤΙΝΕΣ-ΘΗΚΕΣ (not ΣΑΚΙΔΙΑ-ΤΡΟΛΛΕΥ).
+#   • Companion universe = the CONTENTS of a case (writing/colour/study kit);
+#     the case itself, pencil holders and school bags are excluded → never a
+#     2nd case / holder / bag.
+#   • No embedded spec lookup (pencil cases have no spec sheet) — colour &
+#     licence come purely from the Title.
+
+def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=None):
+    """Build exactly 10 cross-sell slots for a pencil-case trigger.
+    HYBRID character × age × price × brand. Cross-sell only (no 2nd case)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    t_brand = _scb_brand(trigger)
+    t_price = _scb_price(trigger)
+    # Licence & colour from the title (pencil cases carry no spec sheet).
+    t_licence = _scb_licence(trigger.get('Title', ''))
+    t_color = _scb_color(trigger.get('Title', ''))
+    persona, band = _scb_age_persona(trigger, t_licence)
+    is_older = (persona == 'TEEN_ADULT')
+    slot_list = PENCILCASE_SLOTS_BY_PERSONA.get(persona, PENCILCASE_PRIMARY_SLOTS)
+
+    diag.append(("0. Trigger",
+                 f"{t_brand or '—'} €{t_price:.0f}",
+                 f"licence={t_licence or '—'} | colour={t_color or '—'} | "
+                 f"persona={persona} ({band})"))
+
+    # ── Build the companion universe (Stationery + Books for character
+    #    depth), deduped, trigger & all cases/holders/bags excluded. ───────
+    frames = [df_stationery] if df_stationery is not None else []
+    if df_books is not None and not df_books.empty:
+        frames.append(df_books)
+    if not frames:
+        diag.append(("ERROR", 0, "No Stationery/Books source — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    uni = pd.concat(frames, ignore_index=True)
+    hier = uni['Hierarchy'].fillna('').astype(str).str.strip()
+    uni = uni[hier.isin(PENCILCASE_COMPANION_HIERARCHIES)].copy()
+    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    diag.append(("1. Companion universe", len(uni),
+                 "Stationery+Books, case-contents hierarchies only, no cases/bags"))
+
+    # ── HARD GATES (price cap + age) applied before scoring ───────────────
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    price_cap = max(t_price * SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR)
+    kept, dropped_price, dropped_age = [], 0, 0
+    for _, r in uni.iterrows():
+        cp = _scb_price(r)
+        # (a) A companion is never (much) dearer than the case itself.
+        if cp > price_cap:
+            dropped_price += 1
+            continue
+        # (b) No toddler-only character supplies on a neutral/older case.
+        if is_older:
+            c_lic = _scb_licence(r.get('Title', ''))
+            if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
+                dropped_age += 1
+                gate_notes.append(f"  ✗ DROP kid-licence [{c_lic}] on TEEN/ADULT case: "
+                                  f"{str(r.get('Title',''))[:48]}")
+                continue
+        kept.append(r)
+    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
+    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
+                      f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
+                      f"age dropped {dropped_age})")
+    diag.append(("2. After hard gates", len(gated),
+                 f"price>{price_cap:.0f}: {dropped_price} | kid-on-older: {dropped_age}"))
+
+    if gated.empty:
+        diag.append(("ERROR", 0, "No companions survived the gates"))
+        slot_notes[0] = gate_notes
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
+
+    # ── Build & score each role pool from the persona's slot list ─────────
+    pools = {}
+    for slot_num, role_label, role_key, hierarchies, max_r1, max_total in slot_list:
+        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) "
+               f"| max_r1={max_r1} | max_total={max_total} ==="]
+        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
+        if sub.empty:
+            nts.append("  ⚠ No candidates — slot filled from backfill")
+            pools[slot_num] = (role_label, pd.DataFrame(), max_r1, max_total, nts)
+            continue
+        nts.append(f"  Role pool size: {len(sub)}")
+        scored = _scb_score_companion(sub, role_key, t_licence, is_older,
+                                     t_brand, t_price, t_color, nts)
+        pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
+        diag.append((f"Pool {slot_num} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    # ── Universal backfill: whole gated pool scored generically ───────────
+    backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, is_older,
+                                   t_brand, t_price, t_color, None)
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used = {tm}
+    cursors = {k: 0 for k in pools}
+    taken = {k: 0 for k in pools}
+    slot_filled = 0
+    round_idx = 0
+    while slot_filled < PENCILCASE_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+            if slot_filled >= PENCILCASE_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cur = cursors[rank]
+            done = 0
+            while done < take_n and cur < len(scored) and slot_filled < PENCILCASE_SLOT_TARGET:
+                row = scored.iloc[cur]
+                cur += 1
+                if row['Material'] in used:
+                    continue
+                slot_filled += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_filled
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = PENCILCASE_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στην κασετίνα σου.")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_filled, []).append(
+                    f"Round {round_idx} | '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('_scb_reasons',''))} | "
+                    f"{str(row.get('Title',''))[:60]}")
+            cursors[rank] = cur
+        if not progress:
+            break
+
+    # ── Mandatory backfill: reach 10/10 from the gated floor ──────────────
+    if slot_filled < PENCILCASE_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_filled >= PENCILCASE_SLOT_TARGET:
+                break
+            if row['Material'] in used:
+                continue
+            slot_filled += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_filled
+            role_label = 'Σχολικά Είδη'
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = PENCILCASE_MARKETING_COPY.get(role_label, "Ιδανική προσθήκη στην κασετίνα σου.")
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used.add(row['Material'])
+            slot_notes.setdefault(slot_filled, []).append(
+                f"BACKFILL | '{role_label}' | "
+                f"{str(row.get('Title',''))[:60]}")
+
+    # ── Pool diagnostics under slot 0 ─────────────────────────────────────
+    pool_diag = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+        pool_diag.extend(nts)
+        pool_diag.append(f"  → consumed {taken[rank]} / "
+                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag.append("")
+    slot_notes[0] = pool_diag
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_filled}/{PENCILCASE_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -34848,6 +35653,17 @@ elif active_cluster == "School Bags":
     recs, diag, slot_notes, full_candidates = run_schoolbags_engine(
         trigger, df_stationery, df_books, df_history)
     slot_diag = []
+elif active_cluster == "Pencil Cases":
+    # v28.62 — Κασετίνες cross-sell ("γέμισε την κασετίνα"). Dedicated
+    # theme-aware engine (NOT the generic stationery slot path). SIBLING of
+    # run_schoolbags_engine: character/licence match DOMINATES → age-band
+    # coherence (kids colour-led vs older study-led; blocks toddler
+    # characters on a neutral case) → price sanity (companion ≤ case) →
+    # brand + sales tiebreak → role round-robin builds the 10-piece writing
+    # kit, never a 2nd case / holder / bag.
+    recs, diag, slot_notes, full_candidates = run_pencilcases_engine(
+        trigger, df_stationery, df_books, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -35044,6 +35860,9 @@ if not recs.empty:
         elif active_cluster == "School Bags":
             # Per-role school-kit copy (engine stamps Marketing_Copy per row).
             marketing_text = str(r.get('Marketing_Copy', SCHOOLBAG_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στο kit σου.")))
+        elif active_cluster == "Pencil Cases":
+            # Per-role pencil-case copy (engine stamps Marketing_Copy per row).
+            marketing_text = str(r.get('Marketing_Copy', PENCILCASE_MARKETING_COPY.get(raw_role, "Ιδανική προσθήκη στην κασετίνα σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -35083,6 +35902,8 @@ if not recs.empty:
         header_text = "Όλα για το πατίνι σου"
     elif active_cluster == "School Bags":
         header_text = "Έτοιμοι για το σχολείο"
+    elif active_cluster == "Pencil Cases":
+        header_text = "Γέμισε την κασετίνα σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -35271,6 +36092,23 @@ with st.expander("⚙️ System Diagnostics"):
             f"€{max(t_pr_sb*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
             f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
         )
+    elif active_cluster == "Pencil Cases":
+        # v28.62 — pencil-case diagnostic surface: same title-parsed signals
+        # the (shared) engine ranks & gates on; structured spec cols near-empty.
+        t_lic_pc = _scb_licence(trigger.get('Title', '')) or '—'
+        t_br_pc = _scb_brand(trigger) or '—'
+        t_pr_pc = _scb_price(trigger)
+        t_col_pc = _scb_color(trigger.get('Title', '')) or '—'
+        t_pers_pc, t_band_pc = _scb_age_persona(trigger, _scb_licence(trigger.get('Title', '')))
+        st.markdown(
+            f"**Character/Licence:** `{t_lic_pc}` | **Colour:** `{t_col_pc}` | "
+            f"**Persona:** `{t_pers_pc}` ({t_band_pc}) | **Brand:** `{t_br_pc}`"
+        )
+        st.markdown(
+            f"**Price:** `€{t_pr_pc:.0f}` (companion cap "
+            f"€{max(t_pr_pc*SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR):.0f}) | "
+            f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
     st.markdown("### Engine Funnel")
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
@@ -35327,6 +36165,12 @@ with st.expander("⚙️ System Diagnostics"):
     elif active_cluster == "School Bags":
         # v28.61 — school-bag attributes: the engine parses character/age from
         # the Title and reads brand + price; structured spec cols are sparse.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Είδος','Τύπος2',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Pencil Cases":
+        # v28.62 — pencil-case attributes: licence/colour parsed from Title,
+        # brand + price read directly; structured spec cols are near-empty.
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
