@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.62.2-2026-06-15"
+APP_BUILD = "parquet-v28.62.3-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.62.2 — Κασετίνες: cute-case kit (Legami/Kawaii → χαριτωμένα, όχι διαβήτης/διορθωτικό)· σφιχτό motif· theme × ηλικία × χρώμα × brand.
+        🟢 Engine v28.62.3 — Κασετίνες: γεμάτη → συμπληρωματικά (όχι ξανά γραφική ύλη)· χωρίς ανταλλακτικά· cute → on-brand γόμες· theme × ηλικία × χρώμα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2256,6 +2256,8 @@ PENCILCASE_COMPANION_HIERARCHIES = {
     # study & organise (teen / adult)
     "ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ", "ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ",
     "POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ", "ΤΕΤΡΑΔΙΑ",
+    # carry / organise (mostly for FULL-case kits — folders & document wallets)
+    "ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ", "ΝΤΟΣΙΕ",
     # craft
     "ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ",
 }
@@ -2331,6 +2333,41 @@ PENCILCASE_CUTE_SLOTS = [
     (10, 'Μαρκαδόροι',       'MARKER',    ["ΜΑΡΚΑΔΟΡΟΙ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                     1, 1),
 ]
 
+# FULL / "Γεμάτη" kit (v28.62.3) — for a pre-filled case that ALREADY contains
+# the writing core (pencils, pen, eraser, sharpener, ruler). Recommending more
+# of those is redundant, so this kit drops the core entirely and cross-sells
+# COMPLEMENTARY stationery (notebooks, art blocks, stickers, folders, glue…)
+# — theme-matched, so a full Sonic case surfaces Sonic notebooks/stickers/etc.
+PENCILCASE_FULL_SLOTS = [
+    (1,  'Τετράδια',         'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ"],                                             1, 2),
+    (2,  'Αυτοκόλλητα',      'STICKER',   ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                 1, 1),
+    (3,  'Μπλοκ Ζωγραφικής', 'PAD',       ["ΜΠΛΟΚ-ΧΑΡΤΙΑ"],                                         1, 1),
+    (4,  'Μαρκαδόροι',       'MARKER',    ["ΜΑΡΚΑΔΟΡΟΙ"],                                           1, 1),
+    (5,  'Ξυλομπογιές',      'COLOR',     ["ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                                   1, 1),
+    (6,  'Φάκελος',          'FOLDER',    ["ΦΑΚΕΛΟΙ ΜΕΤΑΦΟΡΑΣ", "ΝΤΟΣΙΕ"],                          1, 1),
+    (7,  'Χαρτάκια',         'STUDY',     ["POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"],                          1, 1),
+    (8,  'Κόλλα / Ψαλίδι',   'CRAFT',     ["ΚΟΛΛΕΣ", "ΨΑΛΙΔΙΑ"],                                    1, 1),
+    (9,  'Γεωμετρικά',       'GEOMETRY',  ["ΓΕΩΜΕΤΡΙΚΑ ΟΡΓΑΝΑ", "ΟΡΓΑΝΑ ΣΧΕΔΙΑΣΗΣ"],                1, 1),
+    (10, 'Κηρομπογιές',      'CRAYON',    ["ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ", "ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"],             1, 1),
+]
+
+# Refill / spare-part titles that are NOT a usable standalone item to cross-sell
+# on a pencil case (ink refills, mechanical-pencil leads). Excluded in the hard
+# gates. NOTE: matched at the START of the title (or as the word REFILL) so a
+# real pen that merely *includes* a spare — "Pilot G-2 (+1 Ανταλλακτικό)" — is
+# NOT dropped.
+PENCILCASE_REFILL_PREFIXES = ("ΑΝΤΑΛΛΑΚΤΙΚ", "ΜΥΤΕΣ")
+PENCILCASE_REFILL_SUBSTR = ("REFILL", "ΑΝΤΑΛΛΑΚΤΙΚΟ ΜΕΛΑΝΙ", "ΑΝΤΑΛΛΑΚΤΙΚΑ ΜΕΛΑΝΙΑ")
+
+
+def _pc_is_refill(title):
+    """True if the title is a refill / spare (ink refill, leads) → not a usable
+    standalone cross-sell item for a pencil case."""
+    t = _scb_strip(title).strip()
+    if t.startswith(PENCILCASE_REFILL_PREFIXES):
+        return True
+    return any(s in t for s in PENCILCASE_REFILL_SUBSTR)
+
 PENCILCASE_MARKETING_COPY = {
     'Μολύβια':           "Γέμισε την κασετίνα σου.",
     'Ξυλομπογιές':       "Χρώμα & δημιουργικότητα.",
@@ -2352,6 +2389,7 @@ PENCILCASE_MARKETING_COPY = {
     'Διορθωτικά':        "Διόρθωσε στη στιγμή.",
     'Σημειώσεις':        "Οργάνωσε & σημείωσε.",
     'Χαρτάκια':          "Κράτα σημειώσεις με στιλ.",
+    'Φάκελος':           "Μετέφερε τις εργασίες σου.",
     'Σχολικά Είδη':      "Ιδανική προσθήκη στην κασετίνα σου.",
 }
 
@@ -20508,15 +20546,20 @@ def _scb_color(text):
     return None
 
 
-def _scb_color_score(t_color, c_color, is_older):
+def _scb_color_score(t_color, c_color, is_older, neutral_bonus=True):
     """Colour-coordination delta. Neutrals (black/grey/navy/white/beige/brown)
     coordinate with anything; a same-family match is best; a different BRIGHT
-    on a bag of another colour clashes. Returns (delta, reason)."""
+    on a bag of another colour clashes. Returns (delta, reason).
+    neutral_bonus=False (cute pencil cases): a neutral companion gets NO flat
+    bonus — so a generic black item no longer outranks an on-brand cute one;
+    an exact same-family match still scores, and a bright clash still penalises."""
     if not t_color or not c_color:
         return 0.0, None                     # no colour info → stay neutral
     if c_color == t_color:
         return SCHOOLBAG_S_COLOR_MATCH, f"colour✓{c_color}"
     if c_color in SCHOOLBAG_NEUTRAL_COLORS:
+        if not neutral_bonus:
+            return 0.0, None
         return SCHOOLBAG_S_COLOR_NEUTRAL, f"colour~{c_color}"
     # companion is a BRIGHT that doesn't match the bag → clash
     clash = SCHOOLBAG_S_COLOR_CLASH if is_older else SCHOOLBAG_S_COLOR_CLASH_KIDS
@@ -20632,7 +20675,8 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
         #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
         #    not by choice — those buyers care about price, not colour-matching.
         if colour_always or tprice > SCHOOLBAG_BUDGET_BAG_EUR:
-            col_delta, col_reason = _scb_color_score(t_color, c_color, is_older)
+            col_delta, col_reason = _scb_color_score(t_color, c_color, is_older,
+                                                     neutral_bonus=not cute_case)
             if col_delta:
                 score += col_delta
                 if col_reason:
@@ -20905,7 +20949,14 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
     is_cute = bool(t_motif) or _scb_decorated(_t_title) or \
         _scb_novelty_brand(_t_title) or _scb_novelty_brand(t_brand)
     cute_case = bool(is_cute and is_older)
-    if cute_case:
+    # "Γεμάτη" / full case → already contains the writing core; cross-sell
+    # COMPLEMENTARY stationery instead (no more pencils/pens/erasers).
+    _t_up = _scb_strip(_t_title)
+    is_full = ('ΓΕΜΑΤ' in _t_up) or (' FULL' in (' ' + _t_up))
+    if is_full:
+        slot_list = PENCILCASE_FULL_SLOTS
+        band = band + ' · γεμάτη'
+    elif cute_case:
         slot_list = PENCILCASE_CUTE_SLOTS
         band = band + ' · cute'
     else:
@@ -20935,14 +20986,19 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
     # ── HARD GATES (price cap + age) applied before scoring ───────────────
     gate_notes = ["=== HARD GATES (applied before scoring) ==="]
     price_cap = max(t_price * SCHOOLBAG_PRICE_CAP_MULT, SCHOOLBAG_PRICE_FLOOR)
-    kept, dropped_price, dropped_age = [], 0, 0
+    kept, dropped_price, dropped_age, dropped_refill = [], 0, 0, 0
     for _, r in uni.iterrows():
         cp = _scb_price(r)
         # (a) A companion is never (much) dearer than the case itself.
         if cp > price_cap:
             dropped_price += 1
             continue
-        # (b) No toddler-only character supplies on a neutral/older case.
+        # (b) Refills / spares (ink refills, mechanical-pencil leads) are not a
+        #     usable standalone cross-sell on a pencil case.
+        if _pc_is_refill(r.get('Title', '')):
+            dropped_refill += 1
+            continue
+        # (c) No toddler-only character supplies on a neutral/older case.
         if is_older:
             c_lic = _scb_licence(r.get('Title', ''))
             if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
@@ -20954,9 +21010,9 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
     gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
     gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
                       f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
-                      f"age dropped {dropped_age})")
+                      f"refill dropped {dropped_refill}; age dropped {dropped_age})")
     diag.append(("2. After hard gates", len(gated),
-                 f"price>{price_cap:.0f}: {dropped_price} | kid-on-older: {dropped_age}"))
+                 f"price>{price_cap:.0f}: {dropped_price} | refill: {dropped_refill} | kid-on-older: {dropped_age}"))
 
     if gated.empty:
         diag.append(("ERROR", 0, "No companions survived the gates"))
