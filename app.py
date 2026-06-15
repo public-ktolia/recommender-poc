@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.61.16-2026-06-15"
+APP_BUILD = "parquet-v28.61.18-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.61.16 — Σχολικές: κάθε τσάντα με χαρακτήρα/θέμα (Pokemon/Kuromi/NBA) → παιδικό kit· χωρίς adult είδη (Moleskine) σε παιδικά· kid markers ζωγραφικής όχι σχεδίου.
+        🟢 Engine v28.61.18 — Σχολικές: plain/μαύρη τσάντα δέχεται cute non-kid είδη (Dino/Flamingo, κάθε μάρκας)· μόνο παιδικά licensed (Frozen/Unicorn) μένουν μπλοκαρισμένα.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -20296,7 +20296,16 @@ SCHOOLBAG_SLOTS_BY_PERSONA = {
 }
 
 
-def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_color, notes):
+def _scb_diversity(tm, cm):
+    """Deterministic per-(bag, item) offset so the SAME generic filler (one
+    eraser, one gel pen) doesn't win EVERY carousel. Small enough to only
+    reshuffle generic items — themed (+300k) & same-brand (+25k) keep their
+    lead; stable for a given bag, different across bags."""
+    import zlib
+    return zlib.crc32(f"{tm}|{cm}".encode("utf-8")) % 7000
+
+
+def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_color, notes, tm=None):
     """Score one role's candidate pool. Returns it sorted by Final_Score desc.
     is_older: True for the TEEN_ADULT tier (full clash penalty + kid-licence
     avoidance), False for NURSERY/PRIMARY (theme-coherence, gentle clash)."""
@@ -20345,14 +20354,15 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
             if c_lic is None or c_lic not in SCHOOLBAG_KID_ONLY_LICENCES:
                 score += SCHOOLBAG_S_AGE_COHERENT
                 reasons.append("age-ok")
-            # Neutral/older bag wants PLAIN, on-theme items.
-            if c_lic and c_lic != t_licence:        # a non-matching character
+            # Neutral/older bag: the kid-only HARD GATE already dropped actual
+            # children's licensed supplies (Frozen/Unicorn/Paw Patrol…). A CUTE
+            # non-kid novelty — a Dino/Flamingo pen, an animal eraser, of ANY
+            # brand — is NOT demoted: someone who buys a plain black bag may well
+            # want a cute something. Only a rival LICENSED character is still
+            # pushed down so it can't masquerade as on-theme.
+            if c_lic and c_lic != t_licence:        # a rival licensed character
                 score += SCHOOLBAG_S_OFFTHEME
                 reasons.append("off-theme")
-            elif (_scb_decorated(title) or _scb_novelty_brand(title)
-                  or _scb_novelty_brand(c_brand)):
-                score += SCHOOLBAG_S_NONPLAIN
-                reasons.append("non-plain")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
         #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
@@ -20386,6 +20396,11 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
         score -= price_w * abs(c_price - ideal)
         # 7. Sales micro-tiebreaker.
         score += sales
+        # 7b. Variety across carousels: nudge GENERIC fillers (no on-theme
+        #     licence, not the bag's own brand) by a deterministic per-bag
+        #     amount, so we don't surface the identical eraser/pen everywhere.
+        if not (t_licence and c_lic == t_licence) and c_brand != t_brand:
+            score += _scb_diversity(tm, r.get('Material'))
 
         rr = r.copy()
         rr['Final_Score'] = score
@@ -20499,14 +20514,14 @@ def run_schoolbags_engine(trigger, df_stationery, df_books=None, df_history=None
             continue
         nts.append(f"  Role pool size: {len(sub)}")
         scored = _scb_score_companion(sub, role_key, t_licence, is_older,
-                                     t_brand, t_price, t_color, nts)
+                                     t_brand, t_price, t_color, nts, tm=tm)
         pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
         diag.append((f"Pool {slot_num} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
 
     # ── Universal backfill: whole gated pool scored generically ───────────
     backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, is_older,
-                                   t_brand, t_price, t_color, None)
+                                   t_brand, t_price, t_color, None, tm=tm)
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
     used = {tm}
