@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.63.1-2026-06-15"
+APP_BUILD = "parquet-v28.64.0-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.63.1 — Είδη Αρχειοθέτησης: ανά τύπο → συμπληρωματικά office (top 20/κατηγορία)· μέγεθος × συμβατότητα × brand × χρώμα.
+        🟢 Engine v28.64.0 — Είδη Χειροτεχνίας: ανά τύπο (Πηλός/Χαρτιά/Αξεσουάρ/Κόλλα) → ολοκλήρωσε την κατασκευή· brand × χρώμα × μέγεθος.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2518,6 +2518,77 @@ def _fil_compat_tag(row):
     """'Για Κλασέρ / Για Ντοσιέ' compatibility carried in Τύπος2 (dividers).
     Returns NFD-stripped Τύπος2 text for substring tests."""
     return _scb_strip(row.get('Τύπος2', ''))
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 ARTS & CRAFTS CONFIGURATION (Είδη Χειροτεχνίας)
+# ═════════════════════════════════════════════════════════════
+# Functional creative cross-sell — "complete your craft project". The trigger
+# is any craft product (clay / craft paper / craft accessory / glue); the
+# engine detects its SUB-TYPE and builds a complementary kit (clay → tool-sets
+# & moulds, more clay, paint, brushes, apron; paper → glue, accessories,
+# colour, scissors). Reuses the FILING functional scorer (_fil_score_pool):
+# size (paper pads Α4/Α3) → brand/system coherence (Giotto-with-Giotto,
+# Crayola-with-Crayola, 98 % reliable manufacturer) → colour → sales. NO theme
+# machinery. Clay lives in BOTH the Stationery and the Books sheet (Play-Doh),
+# so the picker & universe span both for clay.
+
+# Trigger hierarchies — Stationery side (4 of the Public.gr sub-categories).
+CRAFT_TRIGGER_HIERARCHIES_STAT = {
+    "ΠΗΛΟΣ-ΠΛΑΣΤΕΛΙΝΗ", "ΜΠΛΟΚ-ΧΑΡΤΙΑ", "ΜΠΛΟΚ", "ΧΑΡΤΙΑ - ΜΠΛΟΚ",
+    "ACCESSORIES ΧΕΙΡΟΤΕΧΝΙΑΣ", "ΚΟΛΛΕΣ",
+}
+# Trigger hierarchies — Books side (clay / plasticine toy sets: Play-Doh etc.).
+CRAFT_TRIGGER_HIERARCHIES_BOOKS = {"ΠΛΑΣΤΕΛΙΝΕΣ", "ΠΗΛΟΣ-ΠΛΑΣΤΕΛΙΝΗ"}
+
+# Role catalog: role-key → (carousel label, marketing copy, hierarchy pool).
+CRAFT_ROLES = {
+    "CLAY":       ("Πηλός & Πλαστελίνη",   "Πλάσε ό,τι φαντάζεσαι.",      ["ΠΗΛΟΣ-ΠΛΑΣΤΕΛΙΝΗ", "ΠΛΑΣΤΕΛΙΝΕΣ"]),
+    "CRAFTACC":   ("Αξεσουάρ Χειροτεχνίας", "Δώσε ζωή στις κατασκευές.",  ["ACCESSORIES ΧΕΙΡΟΤΕΧΝΙΑΣ"]),
+    "GLUE":       ("Κόλλα",                "Κόλλησε τα πάντα.",           ["ΚΟΛΛΕΣ"]),
+    "CRAFTPAPER": ("Μπλοκ & Χαρτιά",       "Λευκές σελίδες για ιδέες.",   ["ΜΠΛΟΚ-ΧΑΡΤΙΑ", "ΜΠΛΟΚ", "ΧΑΡΤΙΑ - ΜΠΛΟΚ"]),
+    "PAINT":      ("Χρώματα Ζωγραφικής",   "Χρώμα σε κάθε δημιουργία.",   ["ΧΡΩΜΑΤΑ ΖΩΓΡΑΦΙΚΗΣ"]),
+    "PAINTACC":   ("Αξεσουάρ Ζωγραφικής",  "Παλέτες, ποτήρια & ποδιές.",  ["ACCESSORIES ΖΩΓΡΑΦΙΚΗΣ"]),
+    "BRUSH":      ("Πινέλα",               "Για κάθε πινελιά.",           ["ΠΙΝΕΛΑ"]),
+    "SCISSORS":   ("Ψαλίδι",               "Κόψε με ακρίβεια.",           ["ΨΑΛΙΔΙΑ"]),
+    "COLOR":      ("Ξυλομπογιές & Μαρκαδόροι", "Χρωμάτισε τη δημιουργία.", ["ΞΥΛΟΜΠΟΓΙΕΣ", "ΜΑΡΚΑΔΟΡΟΙ ΖΩΓΡΑΦΙΚΗΣ", "ΚΗΡΟΜΠΟΓΙΕΣ-ΠΑΣΤΕΛ"]),
+    "STICKER":    ("Αυτοκόλλητα",          "Διακόσμησε τις κατασκευές.",  ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"]),
+}
+CRAFT_ROLES_COPY = {label: copy for (label, copy, _hs) in CRAFT_ROLES.values()}
+
+# Sub-type detection: trigger Hierarchy → sub-type key.
+CRAFT_SUBTYPE_BY_HIER = {
+    "ΠΗΛΟΣ-ΠΛΑΣΤΕΛΙΝΗ": "CLAY", "ΠΛΑΣΤΕΛΙΝΕΣ": "CLAY",
+    "ΜΠΛΟΚ-ΧΑΡΤΙΑ": "CRAFTPAPER", "ΜΠΛΟΚ": "CRAFTPAPER", "ΧΑΡΤΙΑ - ΜΠΛΟΚ": "CRAFTPAPER",
+    "ACCESSORIES ΧΕΙΡΟΤΕΧΝΙΑΣ": "CRAFTACC",
+    "ΚΟΛΛΕΣ": "GLUE",
+}
+CRAFT_SUBTYPE_LABEL = {
+    "CLAY": "Πηλός & Πλαστελίνη", "CRAFTPAPER": "Μπλοκ & Χαρτιά",
+    "CRAFTACC": "Αξεσουάρ Χειροτεχνίας", "GLUE": "Κόλλες",
+}
+
+# Per-sub-type ordered kit: (role_key, max_total). Complements first; the
+# trigger's own sub-type appears once, capped, lower down. 10 entries → 10 slots
+# (round-robin fills 10 even when a small pool runs dry).
+CRAFT_KITS = {
+    "CLAY":       [("CRAFTACC",2),("CLAY",2),("PAINT",1),("PAINTACC",1),("BRUSH",1),
+                   ("GLUE",1),("CRAFTPAPER",1),("SCISSORS",1),("COLOR",1),("STICKER",1)],
+    "CRAFTPAPER": [("GLUE",1),("CRAFTACC",2),("COLOR",2),("PAINT",1),("BRUSH",1),
+                   ("SCISSORS",1),("CRAFTPAPER",1),("PAINTACC",1),("STICKER",1),("CLAY",1)],
+    "CRAFTACC":   [("GLUE",1),("CRAFTPAPER",1),("CRAFTACC",2),("SCISSORS",1),("PAINT",1),
+                   ("COLOR",1),("STICKER",1),("CLAY",1),("BRUSH",1),("PAINTACC",1)],
+    "GLUE":       [("CRAFTPAPER",2),("CRAFTACC",2),("SCISSORS",1),("GLUE",1),("STICKER",1),
+                   ("PAINT",1),("COLOR",1),("CLAY",1),("BRUSH",1),("PAINTACC",1)],
+}
+
+# Companion universe = all role-pool hierarchies (union) + the Books clay pools.
+CRAFT_COMPANION_HIERARCHIES = {h for _, _, hs in CRAFT_ROLES.values() for h in hs}
+
+CRAFT_TEST_TOP_N = 20             # picker: top-N best-sellers PER sub-type
+CRAFT_PRICE_CAP_MULT = 6.0        # companion ≤ 6× trigger …
+CRAFT_PRICE_FLOOR_EUR = 20.0      # … or €20 (a paint/clay set can lead a cheap glue)
+CRAFT_SLOT_TARGET = 10
 
 
 # ═════════════════════════════════════════════════════════════
@@ -10433,6 +10504,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='6' width='18' height='13' rx='3'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3Ccircle cx='17' cy='14' r='1'/%3E%3C/svg%3E"},
         {"key": "Filing", "label": "Αρχειοθέτηση",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z'/%3E%3Cpath d='M3 7l2-3h6l2 3'/%3E%3Cline x1='12' y1='11' x2='12' y2='17'/%3E%3Cline x1='9' y1='14' x2='15' y2='14'/%3E%3C/svg%3E"},
+        {"key": "Crafts", "label": "Χειροτεχνία",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19l7-7 3 3-7 7-3-3z'/%3E%3Cpath d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/%3E%3Cpath d='M2 2l7.586 7.586'/%3E%3Ccircle cx='11' cy='11' r='2'/%3E%3C/svg%3E"},
         {"key": "Geometric Tools", "label": "Γεωμετρικά",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18L12 4 3 21z'/%3E%3Cline x1='8' y1='15' x2='10' y2='15'/%3E%3Cline x1='14' y1='15' x2='16' y2='15'/%3E%3C/svg%3E"},
         {"key": "Stationery Sets", "label": "Σετ\nΧαρτικών",
@@ -11873,6 +11946,51 @@ else:
                     unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", _fil_opts, label_visibility="collapsed", key="filing_sel")
                 trigger = _fil_map[sel] if sel else None
+
+    elif active_cluster == "Crafts":
+        # v28.64 — Είδη Χειροτεχνίας. Dedicated creative engine. Triggers span
+        # the Stationery sheet (clay / craft paper / accessories / glue) AND the
+        # Books sheet (Play-Doh clay). Curated picker: top-N best-sellers per
+        # sub-type, category-labelled.
+        if df_stationery.empty:
+            st.sidebar.warning(
+                "Δεν βρέθηκε πηγή για Είδη Χειροτεχνίας (sheet Stationery). "
+                "Ελέγξτε ότι το Parquet περιέχει το Stationery sheet."
+            )
+        else:
+            _cf_frames = []
+            _sh = df_stationery['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            _cf_frames.append(df_stationery[_sh.isin(CRAFT_TRIGGER_HIERARCHIES_STAT)].copy())
+            if df_books is not None and not df_books.empty:
+                _bh = df_books['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+                _cf_frames.append(df_books[_bh.isin(CRAFT_TRIGGER_HIERARCHIES_BOOKS)].copy())
+            cf_pool = pd.concat(_cf_frames, ignore_index=True) if _cf_frames else pd.DataFrame()
+            cf_pool = cf_pool.drop_duplicates(subset=['Material'])
+            if cf_pool.empty:
+                st.sidebar.warning("Δεν βρέθηκαν Είδη Χειροτεχνίας στα sheets Stationery/Books.")
+            else:
+                _ch = cf_pool['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+                cf_pool = cf_pool.assign(
+                    _cf_sales=pd.to_numeric(cf_pool['Sum of Sales'], errors='coerce').fillna(0.0),
+                    _cf_sub=_ch.map(lambda h: CRAFT_SUBTYPE_LABEL.get(CRAFT_SUBTYPE_BY_HIER.get(h, 'CRAFTACC'), h)),
+                )
+                cf_pool = (cf_pool.sort_values('_cf_sales', ascending=False)
+                                  .groupby('_cf_sub', group_keys=False)
+                                  .head(int(CRAFT_TEST_TOP_N))
+                                  .sort_values(['_cf_sub', '_cf_sales'], ascending=[True, False]))
+                _cf_opts, _cf_map = [], {}
+                for _, _r in cf_pool.iterrows():
+                    _lbl = f"{_r['_cf_sub']} · {str(_r['Title'])}"
+                    if _lbl in _cf_map:
+                        continue
+                    _cf_opts.append(_lbl)
+                    _cf_map[_lbl] = _r
+                st.sidebar.markdown(
+                    f'<p class="sidebar-section">Επιλέξτε Είδος Χειροτεχνίας '
+                    f'<span style="opacity:.6">(top {int(CRAFT_TEST_TOP_N)}/κατηγορία)</span></p>',
+                    unsafe_allow_html=True)
+                sel = st.sidebar.selectbox("", _cf_opts, label_visibility="collapsed", key="crafts_sel")
+                trigger = _cf_map[sel] if sel else None
 
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
@@ -21515,6 +21633,181 @@ def run_filing_engine(trigger, df_stationery, df_books=None, df_history=None):
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_filled}/{FILING_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 ARTS & CRAFTS ENGINE — Είδη Χειροτεχνίας (complete the project)
+# ═════════════════════════════════════════════════════════════
+# Functional creative cross-sell. Detects the trigger sub-type (Clay / Craft
+# paper / Craft accessory / Glue) and builds a 10-piece "finish the project"
+# kit. Reuses the FILING functional scorer (_fil_score_pool): size (paper) →
+# brand/system coherence → colour → sales; same sub-type capped, never the
+# identical SKU. Clay spans the Stationery AND Books sheets (Play-Doh).
+
+def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
+    """Build exactly 10 cross-sell slots for an arts-&-crafts trigger.
+    Returns (recs, diag, slot_notes, candidates)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    t_brand = _scb_brand(trigger)
+    t_price = _scb_price(trigger)
+    t_size = _fil_size(trigger.get('Title', ''))
+    t_color = _scb_color(trigger.get('Title', ''))
+    t_hier = str(trigger.get('Hierarchy', '')).strip()
+    t_subtype = CRAFT_SUBTYPE_BY_HIER.get(t_hier, "CRAFTACC")
+    kit = CRAFT_KITS.get(t_subtype, CRAFT_KITS["CRAFTACC"])
+
+    diag.append(("0. Trigger",
+                 f"{t_brand or '—'} €{t_price:.0f}",
+                 f"sub-type={t_subtype} ({CRAFT_SUBTYPE_LABEL.get(t_subtype,'—')}) | "
+                 f"size={t_size or '—'} | colour={t_color or '—'}"))
+
+    # ── Companion universe: Stationery craft hierarchies + Books clay pools ─
+    frames = []
+    if df_stationery is not None and not df_stationery.empty:
+        s = df_stationery.copy()
+        sh = s['Hierarchy'].fillna('').astype(str).str.strip()
+        frames.append(s[sh.isin(CRAFT_COMPANION_HIERARCHIES)])
+    if df_books is not None and not df_books.empty:
+        b = df_books.copy()
+        bh = b['Hierarchy'].fillna('').astype(str).str.strip()
+        frames.append(b[bh.isin(CRAFT_TRIGGER_HIERARCHIES_BOOKS)])  # clay only
+    if not frames:
+        diag.append(("ERROR", 0, "No Stationery/Books source — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    uni = pd.concat(frames, ignore_index=True)
+    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    diag.append(("1. Companion universe", len(uni),
+                 "Craft hierarchies (Stationery) + clay (Books), trigger excluded"))
+
+    # ── HARD GATES: price cap + drop zero/blank-priced placeholders ───────
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    price_cap = max(t_price * CRAFT_PRICE_CAP_MULT, CRAFT_PRICE_FLOOR_EUR)
+    kept, dropped_price, dropped_zero = [], 0, 0
+    for _, r in uni.iterrows():
+        cp = _scb_price(r)
+        if cp <= 0:
+            dropped_zero += 1
+            continue
+        if cp > price_cap:
+            dropped_price += 1
+            continue
+        kept.append(r)
+    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
+    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
+                      f"(price-cap €{price_cap:.0f} dropped {dropped_price}; "
+                      f"zero-price dropped {dropped_zero})")
+    diag.append(("2. After hard gates", len(gated),
+                 f"price>{price_cap:.0f}: {dropped_price} | zero-price: {dropped_zero}"))
+
+    if gated.empty:
+        diag.append(("ERROR", 0, "No companions survived the gates"))
+        slot_notes[0] = gate_notes
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
+
+    # ── Expand the kit into scored role pools (reuse the filing scorer) ────
+    pools = {}
+    for slot_num, (role_key, max_total) in enumerate(kit, start=1):
+        role_label, _copy, hierarchies = CRAFT_ROLES[role_key]
+        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) | max_total={max_total} ==="]
+        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
+        if sub.empty:
+            nts.append("  ⚠ No candidates — slot filled from backfill")
+            pools[slot_num] = (role_label, pd.DataFrame(), 1, max_total, nts)
+            continue
+        nts.append(f"  Role pool size: {len(sub)}")
+        scored = _fil_score_pool(sub, t_size, t_brand, "CRAFT", t_color, nts)
+        pools[slot_num] = (role_label, scored, 1, max_total, nts)
+        diag.append((f"Pool {slot_num} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    backfill = _fil_score_pool(gated.copy(), t_size, t_brand, "CRAFT", t_color, None)
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used = {tm}
+    cursors = {k: 0 for k in pools}
+    taken = {k: 0 for k in pools}
+    slot_filled = 0
+    round_idx = 0
+    while slot_filled < CRAFT_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+            if slot_filled >= CRAFT_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cur = cursors[rank]
+            done = 0
+            while done < take_n and cur < len(scored) and slot_filled < CRAFT_SLOT_TARGET:
+                row = scored.iloc[cur]
+                cur += 1
+                if row['Material'] in used:
+                    continue
+                slot_filled += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_filled
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = CRAFT_ROLES_COPY.get(role_label, "Ιδανική προσθήκη στη δημιουργία σου.")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_filled, []).append(
+                    f"Round {round_idx} | '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('_fil_reasons',''))} | "
+                    f"{str(row.get('Title',''))[:60]}")
+            cursors[rank] = cur
+        if not progress:
+            break
+
+    if slot_filled < CRAFT_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_filled >= CRAFT_SLOT_TARGET:
+                break
+            if row['Material'] in used:
+                continue
+            slot_filled += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_filled
+            role_label = 'Χειροτεχνία'
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = "Ιδανική προσθήκη στη δημιουργία σου."
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used.add(row['Material'])
+            slot_notes.setdefault(slot_filled, []).append(
+                f"BACKFILL | '{role_label}' | {str(row.get('Title',''))[:60]}")
+
+    pool_diag = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+        pool_diag.extend(nts)
+        pool_diag.append(f"  → consumed {taken[rank]} / "
+                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag.append("")
+    slot_notes[0] = pool_diag
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_filled}/{CRAFT_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -36271,6 +36564,15 @@ elif active_cluster == "Filing":
     recs, diag, slot_notes, full_candidates = run_filing_engine(
         trigger, df_stationery, df_books, df_history)
     slot_diag = []
+elif active_cluster == "Crafts":
+    # v28.64 — Είδη Χειροτεχνίας cross-sell ("ολοκλήρωσε την κατασκευή").
+    # Functional creative engine: detects sub-type (Πηλός / Μπλοκ-Χαρτιά /
+    # Αξεσουάρ / Κόλλα) and builds a 10-piece finish-the-project kit, ranking on
+    # size (paper) → brand/system coherence → colour → sales. Clay spans the
+    # Stationery + Books sheets (Play-Doh).
+    recs, diag, slot_notes, full_candidates = run_craft_engine(
+        trigger, df_stationery, df_books, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -36473,6 +36775,9 @@ if not recs.empty:
         elif active_cluster == "Filing":
             # Per-role filing copy (engine stamps Marketing_Copy per row).
             marketing_text = str(r.get('Marketing_Copy', FILING_ROLES_COPY.get(raw_role, "Ιδανική προσθήκη στο γραφείο σου.")))
+        elif active_cluster == "Crafts":
+            # Per-role craft copy (engine stamps Marketing_Copy per row).
+            marketing_text = str(r.get('Marketing_Copy', CRAFT_ROLES_COPY.get(raw_role, "Ιδανική προσθήκη στη δημιουργία σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -36516,6 +36821,8 @@ if not recs.empty:
         header_text = "Γέμισε την κασετίνα σου"
     elif active_cluster == "Filing":
         header_text = "Οργάνωσε το αρχείο σου"
+    elif active_cluster == "Crafts":
+        header_text = "Ολοκλήρωσε την κατασκευή σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -36743,6 +37050,23 @@ with st.expander("⚙️ System Diagnostics"):
             f"€{max(t_pr_fl*FILING_PRICE_CAP_MULT, FILING_PRICE_FLOOR_EUR):.0f}) | "
             f"**Hierarchy:** `{t_hier_fl}`"
         )
+    elif active_cluster == "Crafts":
+        # v28.64 — craft diagnostic surface: sub-type / size / brand / colour.
+        t_hier_cf = str(trigger.get('Hierarchy', '')).strip()
+        t_sub_cf = CRAFT_SUBTYPE_BY_HIER.get(t_hier_cf, "CRAFTACC")
+        t_br_cf = _scb_brand(trigger) or '—'
+        t_pr_cf = _scb_price(trigger)
+        t_sz_cf = _fil_size(trigger.get('Title', '')) or '—'
+        t_col_cf = _scb_color(trigger.get('Title', '')) or '—'
+        st.markdown(
+            f"**Sub-type:** `{t_sub_cf}` ({CRAFT_SUBTYPE_LABEL.get(t_sub_cf,'—')}) | "
+            f"**Size:** `{t_sz_cf}` | **Colour:** `{t_col_cf}` | **Brand:** `{t_br_cf}`"
+        )
+        st.markdown(
+            f"**Price:** `€{t_pr_cf:.0f}` (companion cap "
+            f"€{max(t_pr_cf*CRAFT_PRICE_CAP_MULT, CRAFT_PRICE_FLOOR_EUR):.0f}) | "
+            f"**Hierarchy:** `{t_hier_cf}`"
+        )
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
     st.markdown("### Slot Details")
@@ -36811,6 +37135,12 @@ with st.expander("⚙️ System Diagnostics"):
         # v28.63 — filing attributes: sub-type from Hierarchy, size/colour from
         # Title, brand from Κατασκευαστής (reliable); Είδος/Τύπος2 carry sub-type
         # & the "Για Κλασέρ/Ντοσιέ" compatibility tag.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Είδος','Τύπος2',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Crafts":
+        # v28.64 — craft attributes: sub-type from Hierarchy, size/colour from
+        # Title, brand from Κατασκευαστής (reliable); structured specs sparse.
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
