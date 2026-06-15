@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.62.1-2026-06-15"
+APP_BUILD = "parquet-v28.62.2-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.62.1 — Κασετίνες: theme/licence × motif (Ladybug/Teddy) × ηλικία × χρώμα × brand· ποτέ 2η κασετίνα/τσάντα· διευρυμένα test SKUs.
+        🟢 Engine v28.62.2 — Κασετίνες: cute-case kit (Legami/Kawaii → χαριτωμένα, όχι διαβήτης/διορθωτικό)· σφιχτό motif· theme × ηλικία × χρώμα × brand.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2160,22 +2160,31 @@ PENCILCASE_SLOT_TARGET = 10
 # Each entry: (canonical, [NFD-stripped UPPER substrings]). ORDER MATTERS.
 PENCILCASE_MOTIFS = [
     ("LADYBUG",  ["LADYBUG", "LADYBIRD", "ΠΑΣΧΑΛΙΤΣ"]),
-    ("TEDDY",    ["TEDDY", "ΑΡΚΟΥΔ", " BEAR", "TEDDYBEAR"]),
-    ("MEOW",     ["MEOW", "KITTY", "ΝΙΑΟΥ"]),          # Legami cat collection
+    ("TEDDY",    ["TEDDY", "ΑΡΚΟΥΔ"]),          # v28.62.2: dropped greedy " BEAR" (matched "Queen-Bear")
+    ("MEOW",     ["MEOW", "KITTY", "ΝΙΑΟΥ"]),   # Legami cat collection
     ("UNICORN",  ["UNICORN", "ΜΟΝΟΚΕΡ"]),
-    ("PANDA",    ["PANDA", "ΠΑΝΤΑ"]),
+    ("PANDA",    ["PANDA"]),                     # dropped "ΠΑΝΤΑ" (= Greek "always")
     ("BEE",      ["BUMBLE", " BEE", "ΜΕΛΙΣΣ"]),
     ("BUNNY",    ["BUNNY", "RABBIT", "ΛΑΓΟΥΔ", "ΚΟΥΝΕΛ"]),
     ("DINO",     ["DINO", "ΔΕΙΝΟΣ", "DRAGON", "ΔΡΑΚ"]),
     ("FROG",     ["FROG", "ΒΑΤΡΑΧ"]),
-    ("MONSTER",  ["MONSTER", "ΤΕΡΑΣ"]),
+    ("MONSTER",  ["MONSTER"]),                   # dropped "ΤΕΡΑΣ" (matches "τεράστιο")
     ("TIGER",    ["TIGER", "ΤΙΓΡ"]),
     ("CAPYBARA", ["CAPYBARA", "ΚΑΠΙΜΠΑΡΑ"]),
     ("AVOCADO",  ["AVOCADO", "ΑΒΟΚΑΝΤΟ"]),
-    ("HEART",    ["HEART", "ΚΑΡΔ"]),
-    ("STAR",     ["STAR", "ΑΣΤΕΡ"]),
+    ("HEART",    ["HEART", "ΚΑΡΔΟΥΛ", "ΚΑΡΔΙ"]),
+    ("STAR",     [" STAR", "ΑΣΤΕΡ"]),            # leading space → no "MUSTARD" false hit
 ]
 PENCILCASE_S_MOTIF_MATCH = 150_000   # companion shares the case's sub-theme
+
+# Cute-case coherence (v28.62.2). A Legami-Kawaii / themed novelty case is the
+# OPPOSITE of a plain Eastpak-style case: the buyer wants CUTE supplies, not a
+# serious black compass + white eraser. On such a trigger the engine flips the
+# plain/decorated logic — a decorated / novelty / motif companion is REWARDED
+# (+this) instead of penalised (−SCHOOLBAG_S_NONPLAIN), so the cute Legami
+# eraser beats the plain Faber one. Below colour-match (70k) so on-palette
+# still leads where it exists, above brand (25k).
+PENCILCASE_S_CUTE = 40_000
 
 # Implied colour family per motif — when the trigger title carries the motif
 # but NO colour word (e.g. "…Teddy Bear" has no "brown"), the engine seeds the
@@ -2304,6 +2313,24 @@ PENCILCASE_SLOTS_BY_PERSONA = {
     'TEEN_ADULT': PENCILCASE_TEEN_SLOTS,
 }
 
+# CUTE kit (v28.62.2) — used when an older/neutral case is actually a themed
+# novelty/Kawaii one (Legami, motif, decorated). Drops the two forced-plain
+# study slots (geometry → only serious compasses; correction → only Tipp-Ex)
+# and spends them on cute-capable categories (stickers, sticky-notes, markers)
+# so every slot can be a fun, on-brand pick instead of a bland filler.
+PENCILCASE_CUTE_SLOTS = [
+    (1,  'Στυλό Gel',        'PEN_GEL',   ["ΣΤΥΛΟ GEL"],                                            1, 2),
+    (2,  'Μολύβια',          'PENCIL',    ["ΜΟΛΥΒΙΑ"],                                              1, 1),
+    (3,  'Γόμα',             'ERASER',    ["ΓΟΜΕΣ"],                                                1, 1),
+    (4,  'Ξύστρα',           'SHARP',     ["ΞΥΣΤΡΕΣ"],                                              1, 1),
+    (5,  'Μαρκαδόροι Υπογρ.', 'HIGHLIGHT', ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"],                             1, 1),
+    (6,  'Αυτοκόλλητα',      'STICKER',   ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"],                                 1, 1),
+    (7,  'Στυλό',            'PEN',       ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ", "ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ"],               1, 1),
+    (8,  'Χαρτάκια',         'STUDY',     ["POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"],                          1, 1),
+    (9,  'Τετράδια',         'NOTEBOOK',  ["ΤΕΤΡΑΔΙΑ"],                                             1, 1),
+    (10, 'Μαρκαδόροι',       'MARKER',    ["ΜΑΡΚΑΔΟΡΟΙ", "ΧΡΩΜΑΤΙΣΤΑ ΜΟΛΥΒΙΑ"],                     1, 1),
+]
+
 PENCILCASE_MARKETING_COPY = {
     'Μολύβια':           "Γέμισε την κασετίνα σου.",
     'Ξυλομπογιές':       "Χρώμα & δημιουργικότητα.",
@@ -2324,6 +2351,7 @@ PENCILCASE_MARKETING_COPY = {
     'Γεωμετρικά':        "Ακρίβεια στα μαθηματικά.",
     'Διορθωτικά':        "Διόρθωσε στη στιγμή.",
     'Σημειώσεις':        "Οργάνωσε & σημείωσε.",
+    'Χαρτάκια':          "Κράτα σημειώσεις με στιλ.",
     'Σχολικά Είδη':      "Ιδανική προσθήκη στην κασετίνα σου.",
 }
 
@@ -20531,7 +20559,7 @@ SCHOOLBAG_SLOTS_BY_PERSONA = {
 
 
 def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_color, notes,
-                         t_motif=None, colour_always=False):
+                         t_motif=None, colour_always=False, cute_case=False):
     """Score one role's candidate pool. Returns it sorted by Final_Score desc.
     is_older: True for the TEEN_ADULT tier (full clash penalty + kid-licence
     avoidance), False for NURSERY/PRIMARY (theme-coherence, gentle clash).
@@ -20593,8 +20621,12 @@ def _scb_score_companion(sub, role_key, t_licence, is_older, t_brand, tprice, t_
                 reasons.append("off-theme")
             elif (_scb_decorated(title) or _scb_novelty_brand(title)
                   or _scb_novelty_brand(c_brand)):
-                score += SCHOOLBAG_S_NONPLAIN
-                reasons.append("non-plain")
+                if cute_case:
+                    score += PENCILCASE_S_CUTE
+                    reasons.append("cute")
+                else:
+                    score += SCHOOLBAG_S_NONPLAIN
+                    reasons.append("non-plain")
         # 3. Colour coordination — prefer same-family / neutral companions,
         #    penalise a bright clash (the teal-case-on-a-black-bag fix).
         #    SKIPPED for budget bags: a cheap bag is black/whatever by default,
@@ -20864,7 +20896,20 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
             _color_src = f'motif:{t_motif}'
     persona, band = _scb_age_persona(trigger, t_licence)
     is_older = (persona == 'TEEN_ADULT')
-    slot_list = PENCILCASE_SLOTS_BY_PERSONA.get(persona, PENCILCASE_PRIMARY_SLOTS)
+    # Cute / novelty case? (a Legami-Kawaii / themed / motif case). On the
+    # older tier such a case wants CUTE supplies, not a serious study kit — so
+    # it gets the cute slot list (no compass/correction) and the scorer rewards
+    # decorated companions instead of penalising them. Kids tiers already
+    # welcome decorated picks, so this only re-routes the TEEN_ADULT tier.
+    _t_title = trigger.get('Title', '')
+    is_cute = bool(t_motif) or _scb_decorated(_t_title) or \
+        _scb_novelty_brand(_t_title) or _scb_novelty_brand(t_brand)
+    cute_case = bool(is_cute and is_older)
+    if cute_case:
+        slot_list = PENCILCASE_CUTE_SLOTS
+        band = band + ' · cute'
+    else:
+        slot_list = PENCILCASE_SLOTS_BY_PERSONA.get(persona, PENCILCASE_PRIMARY_SLOTS)
 
     diag.append(("0. Trigger",
                  f"{t_brand or '—'} €{t_price:.0f}",
@@ -20933,7 +20978,7 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
         nts.append(f"  Role pool size: {len(sub)}")
         scored = _scb_score_companion(sub, role_key, t_licence, is_older,
                                      t_brand, t_price, t_color, nts,
-                                     t_motif=t_motif, colour_always=True)
+                                     t_motif=t_motif, colour_always=True, cute_case=cute_case)
         pools[slot_num] = (role_label, scored, max_r1, max_total, nts)
         diag.append((f"Pool {slot_num} ({role_label})",
                      len(scored) if scored is not None else 0, role_key))
@@ -20941,7 +20986,7 @@ def run_pencilcases_engine(trigger, df_stationery, df_books=None, df_history=Non
     # ── Universal backfill: whole gated pool scored generically ───────────
     backfill = _scb_score_companion(gated.copy(), 'ANY', t_licence, is_older,
                                    t_brand, t_price, t_color, None,
-                                   t_motif=t_motif, colour_always=True)
+                                   t_motif=t_motif, colour_always=True, cute_case=cute_case)
 
     # ── Round-robin fill until 10 slots ───────────────────────────────────
     used = {tm}
