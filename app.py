@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.64.1-2026-06-15"
+APP_BUILD = "parquet-v28.65.0-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.64.1 — Είδη Χειροτεχνίας: ηλικία (νήπιο/παιδί/ενήλικας) × χρήση (πλαστελίνη/γλυπτική/ζωγραφική/χαρτοκοπτική) → σωστό kit.
+        🟢 Engine v28.65.0 — Ημερολόγια: ανά τύπο (ατζέντα/organiser/τοίχου) → αξεσουάρ· brand-locked ανταλλακτικά Filofax· χωρίς παιδικά σε ενήλικες.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2721,6 +2721,77 @@ def _crf_select_kit(t_subtype, t_aud, t_title):
             return CRAFT_KITS_PAPER_PAINT, "painting"
         return CRAFT_KITS["CRAFTPAPER"], "collage"
     return CRAFT_KITS.get(t_subtype, CRAFT_KITS["CRAFTACC"]), "general"
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 CALENDARS / DIARIES / PLANNERS CONFIGURATION (Ημερολόγια)
+# ═════════════════════════════════════════════════════════════
+# Functional cross-sell — "kit out your planner". The trigger is a diary /
+# organiser / wall calendar; the engine detects the SUB-TYPE and builds a kit:
+#   • DIARY (bound agenda) → nice pens, highlighters, sticky notes & flags,
+#     deco stickers, bookmarks, a journal companion.
+#   • ORGANISER (refillable, Filofax) → BRAND-LOCKED refills / inserts first
+#     (printer-cartridge principle — a Filofax planner only takes Filofax
+#     inserts), then dividers / pens / bookmarks.
+#   • WALL / DESK calendar → markers & pens to write on it, sticky notes.
+# Calendars are adult-dominant: a kid-only character pen never lands on a
+# Moleskine; kids' diaries keep their character companions. Refills are kept out
+# of diary/wall kits entirely. Spans the Stationery + Books sheets.
+CALENDAR_TRIGGER_HIERARCHIES = {"ΗΜΕΡΟΛΟΓΙΑ", "ORGANISER"}
+
+CALENDAR_ROLES = {
+    "GELPEN":   ("Στυλό Gel",                "Χρωμάτισε τις μέρες σου.",      ["ΣΤΥΛΟ GEL"]),
+    "PEN":      ("Στυλό",                    "Γράψε τις σημειώσεις σου.",     ["ΣΤΥΛΟ ΔΙΑΡΚΕΙΑΣ"]),
+    "FOUNTAIN": ("Πένα & Υγρής Μελάνης",     "Γράψε με στιλ.",                ["ΣΤΥΛΟ ΥΓΡΗΣ ΜΕΛΑΝΗΣ", "ΠΕΝΕΣ"]),
+    "HIGHLIGHT":("Μαρκαδόροι Υπογράμμισης",  "Τόνισε ό,τι μετράει.",          ["ΜΑΡΚΑΔΟΡΟΙ ΥΠΟΓΡΑΜΜΙΣΗΣ"]),
+    "STICKY":   ("Αυτοκόλλητα Χαρτάκια",     "Σημείωσε & υπενθύμισε.",        ["POST-IT-ΧΑΡΤΑΚΙΑ ΣΗΜΕΙΩΣΕΩΝ"]),
+    "STICKER":  ("Αυτοκόλλητα",              "Διακόσμησε το ημερολόγιο.",     ["ΑΥΤΟΚΟΛΛΗΤΑ-STICKERS"]),
+    "BOOKMARK": ("Σελιδοδείκτες",            "Βρες γρήγορα τη σελίδα.",       ["ΣΕΛΙΔΟΔΕΙΚΤΕΣ"]),
+    "NOTEBOOK": ("Σημειωματάριο",            "Κράτα τις ιδέες σου.",          ["ΣΗΜΕΙΩΜΑΤΑΡΙΑ"]),
+    "MARKER":   ("Μαρκαδόροι",               "Γράψε πάνω στο ημερολόγιο.",    ["ΜΑΡΚΑΔΟΡΟΙ"]),
+    "REFILL":   ("Ανταλλακτικό Organiser",   "Ανανέωσε το organiser σου.",    ["ORGANISER"]),   # brand-locked + refill-only
+    "CALENDAR2":("Ημερολόγιο",               "Άλλο ένα για το σπίτι.",        ["ΗΜΕΡΟΛΟΓΙΑ"]),
+}
+CALENDAR_ROLES_COPY = {label: copy for (label, copy, _hs) in CALENDAR_ROLES.values()}
+
+CALENDAR_SUBTYPE_LABEL = {"DIARY": "Ημερολόγιο/Ατζέντα", "ORGANISER": "Organiser",
+                          "WALL": "Τοίχου/Επιτραπέζιο"}
+
+CALENDAR_KITS = {
+    "DIARY":     [("GELPEN",1),("PEN",1),("HIGHLIGHT",1),("STICKY",2),("STICKER",1),
+                  ("BOOKMARK",1),("NOTEBOOK",1),("FOUNTAIN",1),("MARKER",1)],
+    "ORGANISER": [("REFILL",3),("BOOKMARK",1),("GELPEN",1),("PEN",1),("STICKY",1),
+                  ("NOTEBOOK",1),("HIGHLIGHT",1),("STICKER",1)],
+    "WALL":      [("PEN",1),("MARKER",2),("STICKY",2),("STICKER",1),("CALENDAR2",1),
+                  ("GELPEN",1),("HIGHLIGHT",1),("NOTEBOOK",1)],
+}
+
+# Companion universe = all role hierarchies (union) — accessories + calendars.
+CALENDAR_COMPANION_HIERARCHIES = {h for _, _, hs in CALENDAR_ROLES.values() for h in hs}
+
+CALENDAR_TEST_TOP_N = 20          # picker: top-N best-sellers per sub-type
+CALENDAR_PRICE_CAP_MULT = 3.0     # companion ≤ 3× trigger …
+CALENDAR_PRICE_FLOOR_EUR = 25.0   # … or €25 (a nice pen/journal pairs with a cheap diary)
+CALENDAR_SLOT_TARGET = 10
+
+
+def _cal_subtype(row):
+    """Diary / organiser / wall-desk from hierarchy + Είδος + title."""
+    hier = _scb_strip(row.get('Hierarchy', ''))
+    eidos = _scb_strip(row.get('Είδος', ''))
+    t = _scb_strip(row.get('Title', ''))
+    if "ORGANISER" in hier:
+        return "ORGANISER"
+    if "ΤΟΙΧΟΥ" in eidos or "ΤΟΙΧΟΥ" in t or "ΕΠΙΤΡΑΠΕΖ" in eidos or "ΕΠΙΤΡΑΠΕΖ" in t:
+        return "WALL"
+    return "DIARY"
+
+
+def _cal_is_kid(row):
+    """A kids' diary (character licence / 'παιδικό') vs an adult planner."""
+    t = _scb_strip(row.get('Title', ''))
+    lic = _scb_licence(row.get('Title', ''))
+    return (lic in SCHOOLBAG_KID_ONLY_LICENCES) or ("ΠΑΙΔΙΚ" in t)
 
 
 # ═════════════════════════════════════════════════════════════
@@ -10638,6 +10709,8 @@ L2_CHILDREN = {
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z'/%3E%3Cpath d='M3 7l2-3h6l2 3'/%3E%3Cline x1='12' y1='11' x2='12' y2='17'/%3E%3Cline x1='9' y1='14' x2='15' y2='14'/%3E%3C/svg%3E"},
         {"key": "Crafts", "label": "Χειροτεχνία",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19l7-7 3 3-7 7-3-3z'/%3E%3Cpath d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/%3E%3Cpath d='M2 2l7.586 7.586'/%3E%3Ccircle cx='11' cy='11' r='2'/%3E%3C/svg%3E"},
+        {"key": "Calendars", "label": "Ημερολόγια",
+         "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='3' y1='9' x2='21' y2='9'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='13' x2='8' y2='13'/%3E%3Cline x1='12' y1='13' x2='12' y2='13'/%3E%3Cline x1='16' y1='13' x2='16' y2='13'/%3E%3C/svg%3E"},
         {"key": "Geometric Tools", "label": "Γεωμετρικά",
          "icon_svg": "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff5e00' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18L12 4 3 21z'/%3E%3Cline x1='8' y1='15' x2='10' y2='15'/%3E%3Cline x1='14' y1='15' x2='16' y2='15'/%3E%3C/svg%3E"},
         {"key": "Stationery Sets", "label": "Σετ\nΧαρτικών",
@@ -12123,6 +12196,44 @@ else:
                     unsafe_allow_html=True)
                 sel = st.sidebar.selectbox("", _cf_opts, label_visibility="collapsed", key="crafts_sel")
                 trigger = _cf_map[sel] if sel else None
+
+    elif active_cluster == "Calendars":
+        # v28.65 — Ημερολόγια. Dedicated functional engine. Triggers span the
+        # Stationery + Books sheets (ΗΜΕΡΟΛΟΓΙΑ / ORGANISER). Curated picker:
+        # top-N best-sellers per sub-type, category-labelled.
+        _cl_frames = []
+        if not df_stationery.empty:
+            _sh = df_stationery['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            _cl_frames.append(df_stationery[_sh.isin(CALENDAR_TRIGGER_HIERARCHIES)].copy())
+        if df_books is not None and not df_books.empty:
+            _bh = df_books['Hierarchy'].fillna('').astype(str).str.upper().str.strip()
+            _cl_frames.append(df_books[_bh.isin(CALENDAR_TRIGGER_HIERARCHIES)].copy())
+        cl_pool = pd.concat(_cl_frames, ignore_index=True) if _cl_frames else pd.DataFrame()
+        cl_pool = cl_pool.drop_duplicates(subset=['Material'])
+        if cl_pool.empty:
+            st.sidebar.warning("Δεν βρέθηκαν Ημερολόγια στα sheets Stationery/Books.")
+        else:
+            cl_pool = cl_pool.assign(
+                _cl_sales=pd.to_numeric(cl_pool['Sum of Sales'], errors='coerce').fillna(0.0),
+                _cl_sub=cl_pool.apply(lambda r: CALENDAR_SUBTYPE_LABEL.get(_cal_subtype(r), 'Ημερολόγιο'), axis=1),
+            )
+            cl_pool = (cl_pool.sort_values('_cl_sales', ascending=False)
+                              .groupby('_cl_sub', group_keys=False)
+                              .head(int(CALENDAR_TEST_TOP_N))
+                              .sort_values(['_cl_sub', '_cl_sales'], ascending=[True, False]))
+            _cl_opts, _cl_map = [], {}
+            for _, _r in cl_pool.iterrows():
+                _lbl = f"{_r['_cl_sub']} · {str(_r['Title'])}"
+                if _lbl in _cl_map:
+                    continue
+                _cl_opts.append(_lbl)
+                _cl_map[_lbl] = _r
+            st.sidebar.markdown(
+                f'<p class="sidebar-section">Επιλέξτε Ημερολόγιο '
+                f'<span style="opacity:.6">(top {int(CALENDAR_TEST_TOP_N)}/κατηγορία)</span></p>',
+                unsafe_allow_html=True)
+            sel = st.sidebar.selectbox("", _cl_opts, label_visibility="collapsed", key="calendars_sel")
+            trigger = _cl_map[sel] if sel else None
 
     elif active_cluster in STATIONERY_CLUSTERS:
         if df_stationery.empty:
@@ -21948,6 +22059,205 @@ def run_craft_engine(trigger, df_stationery, df_books=None, df_history=None):
 
     diag.append(("TOTAL", len(all_recs),
                  f"Filled {slot_filled}/{CRAFT_SLOT_TARGET} slots in {round_idx} rounds"))
+
+    if all_recs:
+        recs_df = pd.DataFrame(all_recs)
+        recs_df['Draft_Score'] = recs_df['Assigned_Slot']
+        return recs_df, diag, slot_notes, recs_df
+    return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+
+# ═════════════════════════════════════════════════════════════
+# 🟢 CALENDARS / DIARIES ENGINE — Ημερολόγια (kit out your planner)
+# ═════════════════════════════════════════════════════════════
+# Functional cross-sell. Detects sub-type (Diary / Organiser / Wall) and builds
+# a 10-piece kit. Reuses the filing scorer (brand/colour/sales). ORGANISER leads
+# with BRAND-LOCKED refills (Filofax→Filofax); diary/wall kits exclude refills.
+# Adult planners drop kid-only-character companions; kids' diaries keep them.
+
+def run_calendar_engine(trigger, df_stationery, df_books=None, df_history=None):
+    """Build exactly 10 cross-sell slots for a calendar/diary/planner trigger.
+    Returns (recs, diag, slot_notes, candidates)."""
+    diag = []
+    slot_notes = {}
+    all_recs = []
+
+    tm = trigger['Material']
+    t_brand = _scb_brand(trigger)
+    t_price = _scb_price(trigger)
+    t_color = _scb_color(trigger.get('Title', ''))
+    t_subtype = _cal_subtype(trigger)
+    t_is_kid = _cal_is_kid(trigger)
+    kit = CALENDAR_KITS.get(t_subtype, CALENDAR_KITS["DIARY"])
+
+    diag.append(("0. Trigger",
+                 f"{t_brand or '—'} €{t_price:.0f}",
+                 f"sub-type={t_subtype} ({CALENDAR_SUBTYPE_LABEL.get(t_subtype,'—')}) | "
+                 f"audience={'KID' if t_is_kid else 'ADULT'} | colour={t_color or '—'}"))
+
+    # ── Companion universe: Stationery accessories+calendars + Books calendars ─
+    frames = []
+    if df_stationery is not None and not df_stationery.empty:
+        s = df_stationery.copy()
+        sh = s['Hierarchy'].fillna('').astype(str).str.strip()
+        frames.append(s[sh.isin(CALENDAR_COMPANION_HIERARCHIES)])
+    if df_books is not None and not df_books.empty:
+        b = df_books.copy()
+        bh = b['Hierarchy'].fillna('').astype(str).str.strip()
+        frames.append(b[bh.isin(CALENDAR_TRIGGER_HIERARCHIES)])
+    if not frames:
+        diag.append(("ERROR", 0, "No Stationery/Books source — engine cannot run"))
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+    uni = pd.concat(frames, ignore_index=True)
+    uni = uni[uni['Material'] != tm].drop_duplicates(subset=['Material'], keep='first')
+    diag.append(("1. Companion universe", len(uni),
+                 "Accessories + calendars (Stationery) + calendars (Books), trigger excluded"))
+
+    # ── HARD GATES: price cap + refills(non-organiser) + kid-licence(adult) + zero ─
+    gate_notes = ["=== HARD GATES (applied before scoring) ==="]
+    price_cap = max(t_price * CALENDAR_PRICE_CAP_MULT, CALENDAR_PRICE_FLOOR_EUR)
+    kept, d_price, d_zero, d_refill, d_kid = [], 0, 0, 0, 0
+    for _, r in uni.iterrows():
+        cp = _scb_price(r)
+        if cp <= 0:
+            d_zero += 1
+            continue
+        if cp > price_cap:
+            d_price += 1
+            continue
+        # refills only belong on an ORGANISER carousel (and only same-brand — see
+        # the REFILL role below). Never on a diary/wall kit.
+        is_refill = _pc_is_refill(r.get('Title', ''))
+        if is_refill and t_subtype != "ORGANISER":
+            d_refill += 1
+            continue
+        # adult planner → no toddler-character companions.
+        if not t_is_kid:
+            c_lic = _scb_licence(r.get('Title', ''))
+            if c_lic in SCHOOLBAG_KID_ONLY_LICENCES:
+                d_kid += 1
+                continue
+        kept.append(r)
+    gated = pd.DataFrame(kept) if kept else pd.DataFrame(columns=uni.columns)
+    gate_notes.append(f"  → kept {len(gated)} / {len(uni)} "
+                      f"(price>{price_cap:.0f}: {d_price}; zero: {d_zero}; "
+                      f"refill(non-org): {d_refill}; kid-on-adult: {d_kid})")
+    diag.append(("2. After hard gates", len(gated),
+                 f"price: {d_price} | zero: {d_zero} | refill: {d_refill} | kid: {d_kid}"))
+
+    if gated.empty:
+        diag.append(("ERROR", 0, "No companions survived the gates"))
+        slot_notes[0] = gate_notes
+        return pd.DataFrame(), diag, slot_notes, pd.DataFrame()
+
+    g_hier = gated['Hierarchy'].fillna('').astype(str).str.strip()
+    g_refill = gated['Title'].apply(_pc_is_refill)
+
+    # ── Expand the kit into scored role pools ─────────────────────────────
+    pools = {}
+    for slot_num, (role_key, max_total) in enumerate(kit, start=1):
+        role_label, _copy, hierarchies = CALENDAR_ROLES[role_key]
+        nts = [f"=== Slot {slot_num}: {role_label} ({role_key}) | max_total={max_total} ==="]
+        sub = gated[g_hier.isin([h.strip() for h in hierarchies])].copy()
+        if role_key == "REFILL":
+            # printer-cartridge: only refills/inserts of the SAME brand as the
+            # organiser (Filofax inserts fit Filofax).
+            sub = sub[sub['Title'].apply(_pc_is_refill)]
+            if t_brand:
+                sub = sub[sub['Κατασκευαστής'].fillna('').astype(str)
+                          .apply(_scb_strip).str.strip() == t_brand]
+            nts.append(f"  brand-locked to {t_brand or '—'}")
+        else:
+            # never let a refill sneak into a non-refill role
+            sub = sub[~sub['Title'].apply(_pc_is_refill)]
+        if sub.empty:
+            nts.append("  ⚠ No candidates — slot filled from backfill")
+            pools[slot_num] = (role_label, pd.DataFrame(), 1, max_total, nts)
+            continue
+        nts.append(f"  Role pool size: {len(sub)}")
+        scored = _fil_score_pool(sub, "", t_brand, "CAL", t_color, nts)
+        pools[slot_num] = (role_label, scored, 1, max_total, nts)
+        diag.append((f"Pool {slot_num} ({role_label})",
+                     len(scored) if scored is not None else 0, role_key))
+
+    # backfill: whole gated floor minus refills (refills are organiser-only)
+    bf = gated[~g_refill].copy()
+    backfill = _fil_score_pool(bf, "", t_brand, "CAL", t_color, None) if not bf.empty else pd.DataFrame()
+
+    # ── Round-robin fill until 10 slots ───────────────────────────────────
+    used = {tm}
+    cursors = {k: 0 for k in pools}
+    taken = {k: 0 for k in pools}
+    slot_filled = 0
+    round_idx = 0
+    while slot_filled < CALENDAR_SLOT_TARGET:
+        progress = False
+        round_idx += 1
+        for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+            if slot_filled >= CALENDAR_SLOT_TARGET:
+                break
+            if scored is None or scored.empty:
+                continue
+            if max_total is not None and taken[rank] >= max_total:
+                continue
+            take_n = max_r1 if round_idx == 1 else 1
+            if max_total is not None:
+                take_n = min(take_n, max_total - taken[rank])
+            cur = cursors[rank]
+            done = 0
+            while done < take_n and cur < len(scored) and slot_filled < CALENDAR_SLOT_TARGET:
+                row = scored.iloc[cur]
+                cur += 1
+                if row['Material'] in used:
+                    continue
+                slot_filled += 1
+                rc = row.copy()
+                rc['Assigned_Slot'] = slot_filled
+                rc['Slot_Role'] = role_label
+                rc['Marketing_Copy'] = CALENDAR_ROLES_COPY.get(role_label, "Ιδανική προσθήκη στο ημερολόγιό σου.")
+                rc['Item_Rank'] = round_idx
+                all_recs.append(rc)
+                used.add(row['Material'])
+                done += 1
+                taken[rank] += 1
+                progress = True
+                slot_notes.setdefault(slot_filled, []).append(
+                    f"Round {round_idx} | '{role_label}' | "
+                    f"Score: {float(row.get('Final_Score', 0)):,.0f} | "
+                    f"{str(row.get('_fil_reasons',''))} | "
+                    f"{str(row.get('Title',''))[:60]}")
+            cursors[rank] = cur
+        if not progress:
+            break
+
+    if slot_filled < CALENDAR_SLOT_TARGET and not backfill.empty:
+        for _, row in backfill.iterrows():
+            if slot_filled >= CALENDAR_SLOT_TARGET:
+                break
+            if row['Material'] in used:
+                continue
+            slot_filled += 1
+            rc = row.copy()
+            rc['Assigned_Slot'] = slot_filled
+            role_label = 'Ημερολόγιο'
+            rc['Slot_Role'] = role_label
+            rc['Marketing_Copy'] = "Ιδανική προσθήκη στο ημερολόγιό σου."
+            rc['Item_Rank'] = 99
+            all_recs.append(rc)
+            used.add(row['Material'])
+            slot_notes.setdefault(slot_filled, []).append(
+                f"BACKFILL | '{role_label}' | {str(row.get('Title',''))[:60]}")
+
+    pool_diag = list(gate_notes) + [""]
+    for rank, (role_label, scored, max_r1, max_total, nts) in pools.items():
+        pool_diag.extend(nts)
+        pool_diag.append(f"  → consumed {taken[rank]} / "
+                         f"{len(scored) if scored is not None else 0} (cap {max_total})")
+        pool_diag.append("")
+    slot_notes[0] = pool_diag
+
+    diag.append(("TOTAL", len(all_recs),
+                 f"Filled {slot_filled}/{CALENDAR_SLOT_TARGET} slots in {round_idx} rounds"))
 
     if all_recs:
         recs_df = pd.DataFrame(all_recs)
@@ -36713,6 +37023,14 @@ elif active_cluster == "Crafts":
     recs, diag, slot_notes, full_candidates = run_craft_engine(
         trigger, df_stationery, df_books, df_history)
     slot_diag = []
+elif active_cluster == "Calendars":
+    # v28.65 — Ημερολόγια cross-sell. Functional engine: detects sub-type
+    # (ατζέντα / organiser / τοίχου) and builds an accessory kit. ORGANISER leads
+    # with brand-locked Filofax refills; diary/wall exclude refills; adult
+    # planners drop kid-only-character companions.
+    recs, diag, slot_notes, full_candidates = run_calendar_engine(
+        trigger, df_stationery, df_books, df_history)
+    slot_diag = []
 elif active_cluster in ("Mouse", "Keyboard", "Gaming Mouse", "Gaming Keyboard"):
     recs, diag, slot_notes, full_candidates = run_peripherals_engine(trigger, df_peripherals, df_history, active_cluster)
     slot_diag = []
@@ -36918,6 +37236,9 @@ if not recs.empty:
         elif active_cluster == "Crafts":
             # Per-role craft copy (engine stamps Marketing_Copy per row).
             marketing_text = str(r.get('Marketing_Copy', CRAFT_ROLES_COPY.get(raw_role, "Ιδανική προσθήκη στη δημιουργία σου.")))
+        elif active_cluster == "Calendars":
+            # Per-role calendar copy (engine stamps Marketing_Copy per row).
+            marketing_text = str(r.get('Marketing_Copy', CALENDAR_ROLES_COPY.get(raw_role, "Ιδανική προσθήκη στο ημερολόγιό σου.")))
         elif active_cluster == "Vinyl Records":
             marketing_text = str(r.get('Marketing_Copy', VINYLREC_MARKETING_COPY.get(raw_role, "Ιδανική επιλογή!")))
         elif active_cluster == "K-Pop CDs":
@@ -36963,6 +37284,8 @@ if not recs.empty:
         header_text = "Οργάνωσε το αρχείο σου"
     elif active_cluster == "Crafts":
         header_text = "Ολοκλήρωσε την κατασκευή σου"
+    elif active_cluster == "Calendars":
+        header_text = "Εξόπλισε το ημερολόγιό σου"
     elif active_cluster == "Vinyl Records":
         header_text = "Για τη συλλογή σου"
     elif active_cluster == "K-Pop CDs":
@@ -37210,6 +37533,24 @@ with st.expander("⚙️ System Diagnostics"):
             f"€{max(t_pr_cf*CRAFT_PRICE_CAP_MULT, CRAFT_PRICE_FLOOR_EUR):.0f}) | "
             f"**Hierarchy:** `{t_hier_cf}`"
         )
+    elif active_cluster == "Calendars":
+        # v28.65 — calendar diagnostic surface: sub-type / audience / brand.
+        t_sub_cl = _cal_subtype(trigger)
+        t_kid_cl = "KID" if _cal_is_kid(trigger) else "ADULT"
+        t_br_cl = _scb_brand(trigger) or '—'
+        t_pr_cl = _scb_price(trigger)
+        t_col_cl = _scb_color(trigger.get('Title', '')) or '—'
+        st.markdown(
+            f"**Sub-type:** `{t_sub_cl}` ({CALENDAR_SUBTYPE_LABEL.get(t_sub_cl,'—')}) | "
+            f"**Audience:** `{t_kid_cl}` | **Colour:** `{t_col_cl}` | **Brand:** `{t_br_cl}`"
+        )
+        _reflock = " · refills brand-locked" if t_sub_cl == "ORGANISER" else ""
+        st.markdown(
+            f"**Price:** `€{t_pr_cl:.0f}` (companion cap "
+            f"€{max(t_pr_cl*CALENDAR_PRICE_CAP_MULT, CALENDAR_PRICE_FLOOR_EUR):.0f}){_reflock} | "
+            f"**Hierarchy:** `{str(trigger.get('Hierarchy','')).strip()}`"
+        )
+
     st.dataframe(pd.DataFrame(diag, columns=["Step","Count","Note"]), use_container_width=True, hide_index=True)
 
     st.markdown("### Slot Details")
@@ -37284,6 +37625,12 @@ with st.expander("⚙️ System Diagnostics"):
     elif active_cluster == "Crafts":
         # v28.64 — craft attributes: sub-type from Hierarchy, size/colour from
         # Title, brand from Κατασκευαστής (reliable); structured specs sparse.
+        attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
+                              'Κατασκευαστής','Είδος','Τύπος2',
+                              'Sum of Sales','LIST PRICE','AVAILABILITY']
+    elif active_cluster == "Calendars":
+        # v28.65 — calendar attributes: sub-type from Hierarchy+Είδος, brand from
+        # Κατασκευαστής; refills (Είδος ΑΝΤΑΛΛΑΚΤΙΚΟ) are brand-locked to organiser.
         attr_keys_to_show = ['Material','Title','Level 2','Hierarchy',
                               'Κατασκευαστής','Είδος','Τύπος2',
                               'Sum of Sales','LIST PRICE','AVAILABILITY']
