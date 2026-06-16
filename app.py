@@ -16,7 +16,7 @@ st.set_page_config(page_title="Smart Recommender POC", layout="wide")
 
 # Visible build marker — bump this when deploying so you can confirm in the
 # live app which version is running (shown in the sidebar).
-APP_BUILD = "parquet-v28.65.0-2026-06-15"
+APP_BUILD = "parquet-v28.65.1-2026-06-15"
 
 # ─────────────────────────────────────────────────────────────
 # CUSTOM TOP HEADER & GLOBAL STYLING
@@ -109,7 +109,7 @@ st.markdown("""
         <div class="poc-title">Recommendation PoC</div>
     </div>
     <div class="poc-promo-banner">
-        🟢 Engine v28.65.0 — Ημερολόγια: ανά τύπο (ατζέντα/organiser/τοίχου) → αξεσουάρ· brand-locked ανταλλακτικά Filofax· χωρίς παιδικά σε ενήλικες.
+        🟢 Engine v28.65.1 — Ημερολόγια: ανά τύπο (ατζέντα/organiser/τοίχου) → αξεσουάρ· brand-locked ανταλλακτικά Filofax· χωρίς παιδικά σε ενήλικες.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -12213,9 +12213,27 @@ else:
         if cl_pool.empty:
             st.sidebar.warning("Δεν βρέθηκαν Ημερολόγια στα sheets Stationery/Books.")
         else:
+            # Sub-type label for the picker — computed inline with plain string
+            # ops (this runs at module-load time, before _scb_strip/_cal_subtype
+            # are defined, so we must NOT call them here). Strip accents so the
+            # accented "Τοίχου" still matches "ΤΟΙΧΟΥ".
+            def _cl_norm(s):
+                return ''.join(c for c in unicodedata.normalize('NFD', str(s))
+                               if unicodedata.category(c) != 'Mn').upper()
+            _Hh = cl_pool['Hierarchy'].map(_cl_norm)
+            _Ee = cl_pool['Είδος'].map(_cl_norm)
+            _Tt = cl_pool['Title'].map(_cl_norm)
+
+            def _cl_picklabel(h, e, t):
+                if "ORGANISER" in h:
+                    return "Organiser"
+                if "ΤΟΙΧΟΥ" in e or "ΤΟΙΧΟΥ" in t or "ΕΠΙΤΡΑΠΕΖ" in e or "ΕΠΙΤΡΑΠΕΖ" in t:
+                    return "Τοίχου/Επιτραπέζιο"
+                return "Ημερολόγιο/Ατζέντα"
+
             cl_pool = cl_pool.assign(
                 _cl_sales=pd.to_numeric(cl_pool['Sum of Sales'], errors='coerce').fillna(0.0),
-                _cl_sub=cl_pool.apply(lambda r: CALENDAR_SUBTYPE_LABEL.get(_cal_subtype(r), 'Ημερολόγιο'), axis=1),
+                _cl_sub=[_cl_picklabel(h, e, t) for h, e, t in zip(_Hh, _Ee, _Tt)],
             )
             cl_pool = (cl_pool.sort_values('_cl_sales', ascending=False)
                               .groupby('_cl_sub', group_keys=False)
